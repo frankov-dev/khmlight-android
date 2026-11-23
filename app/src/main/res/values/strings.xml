@@ -1,17 +1,32 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">KHMlight</string>
-    <string name="nav_my_queue">Моя черга</string>
+    <string name="nav_my_queue">Мої черги</string>
     <string name="nav_all_queues">Усі черги</string>
     <string name="nav_history">Історія</string>
 
     <string name="select_queue">Обрати чергу</string>
+    <string name="add_location">Додати локацію</string>
+    <string name="edit_location">Редагувати локацію</string>
+    <string name="new_location_title">Нова локація</string>
+    <string name="location_name_hint">Назва локації (напр. Дім, Робота)</string>
+    <string name="location_icon_label">Іконка локації</string>
+    <string name="location_queue_label">Підчерга відключень</string>
+    <string name="location_notify_switch">Сповіщення для цієї локації</string>
+    <string name="location_save">Зберегти</string>
+    <string name="location_delete">Видалити</string>
+    <string name="location_saved_msg">Локацію «%1$s» (%2$s) збережено</string>
+    <string name="location_deleted_msg">Локацію «%1$s» видалено</string>
+    <string name="location_limit_reached">Досягнуто максимуму локацій (10)</string>
+    <string name="location_select_queue_error">Оберіть підчергу</string>
+    <string name="location_drag_desc">Перетягнути для зміни порядку</string>
+    <string name="location_edit_desc">Редагувати локацію</string>
     <string name="queue_format">Черга %1$s</string>
     <string name="my_queue_badge">Моя черга</string>
-    <string name="choose_your_queue_title">Оберіть вашу підчергу</string>
-    <string name="choose_your_queue_subtitle">Щоб одразу бачити статус світла, таймер та графік саме для вашої адреси</string>
+    <string name="choose_your_queue_title">Додайте вашу першу локацію</string>
+    <string name="choose_your_queue_subtitle">Вкажіть назву, іконку та підчергу (наприклад, Дім або Робота), щоб бачити статус світла й графік одразу на головному екрані</string>
     <string name="change_queue">Змінити</string>
-    <string name="set_as_my_queue">Зробити моєю чергою</string>
+    <string name="set_as_my_queue">Додати в мої черги</string>
     <string name="my_queue_updated">Обрано підчергу %1$s</string>
 
     <string name="status_power_on">Є світло</string>
@@ -49,8 +64,10 @@
     <string name="navigate_back">Назад</string>
     <string name="settings_title">Налаштування</string>
     <string name="settings_appearance_header">Оформлення та палітра</string>
-    <string name="settings_queue_header">Черга</string>
-    <string name="settings_queue_not_selected">Не обрано</string>
+    <string name="settings_queue_header">Мої локації</string>
+    <string name="settings_queue_not_selected">Локацій ще не додано</string>
+    <string name="settings_notif_locations_label">Локації зі сповіщеннями</string>
+    <string name="settings_notif_locations_empty">Додайте локацію на головному екрані, щоб налаштувати сповіщення</string>
     <string name="settings_about_header">Про застосунок</string>
     <string name="settings_about_source">Дані графіків ГПВ: hoe.com.ua (через GitHub JSON)</string>
     <string name="settings_notifications_header">Сповіщення</string>

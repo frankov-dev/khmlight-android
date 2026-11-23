@@ -11,6 +11,7 @@ data class ResolvedWidgetPalette(
     val innerSurfaceBg: Int,
     val fgPrimary: Int,
     val fgMuted: Int,
+    val iconColor: Int,
     val dividerColor: Int,
     val dotPowerOn: Int,
     val dotPowerOff: Int,
@@ -48,7 +49,7 @@ object WidgetPaletteResolver {
             preset
         }
 
-        val (outerBg, innerBg, fgPrimary, fgMuted) = if (effectivePreset == WidgetColorPreset.DYNAMIC &&
+        val (outerBg, innerBg, fgPrimary, fgMuted, iconColor) = if (effectivePreset == WidgetColorPreset.DYNAMIC &&
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
         ) {
             if (!isNight) {
@@ -58,13 +59,15 @@ object WidgetPaletteResolver {
                 val inner = ColorUtils.blendARGB(accent, outer, 0.20f)
                 val fg = ContextCompat.getColor(context, android.R.color.system_neutral1_900)
                 val muted = ContextCompat.getColor(context, android.R.color.system_neutral2_600)
-                Quad(tintedOuter, inner, fg, muted)
+                val icon = ContextCompat.getColor(context, android.R.color.system_accent1_600)
+                PaletteTokens(tintedOuter, inner, fg, muted, icon)
             } else {
                 val outer = ContextCompat.getColor(context, android.R.color.system_neutral1_900)
                 val inner = ContextCompat.getColor(context, android.R.color.system_neutral2_800)
                 val fg = ContextCompat.getColor(context, android.R.color.system_neutral1_50)
                 val muted = ContextCompat.getColor(context, android.R.color.system_neutral2_300)
-                Quad(outer, inner, fg, muted)
+                val icon = ContextCompat.getColor(context, android.R.color.system_accent1_200)
+                PaletteTokens(outer, inner, fg, muted, icon)
             }
         } else {
             resolveStaticPreset(effectivePreset, isNight)
@@ -78,6 +81,7 @@ object WidgetPaletteResolver {
                 innerSurfaceBg = innerBg,
                 fgPrimary = fgPrimary,
                 fgMuted = fgMuted,
+                iconColor = iconColor,
                 dividerColor = dividerColor,
                 dotPowerOn = 0xFF52C46C.toInt(),
                 dotPowerOff = 0xFFE56B93.toInt(),
@@ -96,6 +100,7 @@ object WidgetPaletteResolver {
                 innerSurfaceBg = innerBg,
                 fgPrimary = fgPrimary,
                 fgMuted = fgMuted,
+                iconColor = iconColor,
                 dividerColor = dividerColor,
                 dotPowerOn = 0xFF6EE08A.toInt(),
                 dotPowerOff = 0xFFF48FB1.toInt(),
@@ -111,99 +116,116 @@ object WidgetPaletteResolver {
         }
     }
 
-    private data class Quad(val outer: Int, val inner: Int, val fg: Int, val muted: Int)
+    private data class PaletteTokens(
+        val outer: Int,
+        val inner: Int,
+        val fg: Int,
+        val muted: Int,
+        val icon: Int
+    )
 
-    private fun resolveStaticPreset(preset: WidgetColorPreset, isNight: Boolean): Quad {
+    private fun resolveStaticPreset(preset: WidgetColorPreset, isNight: Boolean): PaletteTokens {
         return when (preset) {
             WidgetColorPreset.LAVENDER, WidgetColorPreset.DYNAMIC -> if (!isNight) {
-                // Exact palette from reference mockup
-                Quad(
+                PaletteTokens(
                     outer = 0xFFF3F0FA.toInt(),
                     inner = 0xFFE5DFF5.toInt(),
                     fg = 0xFF1A1922.toInt(),
-                    muted = 0xFF626070.toInt()
+                    muted = 0xFF626070.toInt(),
+                    icon = 0xFF5B44B8.toInt()
                 )
             } else {
-                Quad(
+                PaletteTokens(
                     outer = 0xFF1C1A24.toInt(),
                     inner = 0xFF2B2838.toInt(),
                     fg = 0xFFF1EFFA.toInt(),
-                    muted = 0xFFABA7BC.toInt()
+                    muted = 0xFFABA7BC.toInt(),
+                    icon = 0xFFC9B8FF.toInt()
                 )
             }
             WidgetColorPreset.OCEAN -> if (!isNight) {
-                Quad(
+                PaletteTokens(
                     outer = 0xFFEEF3FC.toInt(),
                     inner = 0xFFD8E4FA.toInt(),
                     fg = 0xFF141C2B.toInt(),
-                    muted = 0xFF535F73.toInt()
+                    muted = 0xFF535F73.toInt(),
+                    icon = 0xFF1D5BBF.toInt()
                 )
             } else {
-                Quad(
+                PaletteTokens(
                     outer = 0xFF151C26.toInt(),
                     inner = 0xFF222D3D.toInt(),
                     fg = 0xFFEAF0FA.toInt(),
-                    muted = 0xFFA2B0C4.toInt()
+                    muted = 0xFFA2B0C4.toInt(),
+                    icon = 0xFF9EC5FF.toInt()
                 )
             }
             WidgetColorPreset.MINT -> if (!isNight) {
-                Quad(
+                PaletteTokens(
                     outer = 0xFFEDF6F1.toInt(),
                     inner = 0xFFD4EAE0.toInt(),
                     fg = 0xFF13221B.toInt(),
-                    muted = 0xFF4F665B.toInt()
+                    muted = 0xFF4F665B.toInt(),
+                    icon = 0xFF177A56.toInt()
                 )
             } else {
-                Quad(
+                PaletteTokens(
                     outer = 0xFF14201B.toInt(),
                     inner = 0xFF21332B.toInt(),
                     fg = 0xFFE8F5EE.toInt(),
-                    muted = 0xFFA0B8AC.toInt()
+                    muted = 0xFFA0B8AC.toInt(),
+                    icon = 0xFF8CE0BD.toInt()
                 )
             }
             WidgetColorPreset.AMBER -> if (!isNight) {
-                Quad(
+                PaletteTokens(
                     outer = 0xFFFBF3EB.toInt(),
                     inner = 0xFFF3E0CA.toInt(),
                     fg = 0xFF241B12.toInt(),
-                    muted = 0xFF6E5E4F.toInt()
+                    muted = 0xFF6E5E4F.toInt(),
+                    icon = 0xFFB35C11.toInt()
                 )
             } else {
-                Quad(
+                PaletteTokens(
                     outer = 0xFF221B15.toInt(),
                     inner = 0xFF33291F.toInt(),
                     fg = 0xFFF8EFE6.toInt(),
-                    muted = 0xFFBDB0A2.toInt()
+                    muted = 0xFFBDB0A2.toInt(),
+                    icon = 0xFFFFC58A.toInt()
                 )
             }
             WidgetColorPreset.ROSE -> if (!isNight) {
-                Quad(
+                PaletteTokens(
                     outer = 0xFFFBF0F4.toInt(),
                     inner = 0xFFF3DCE5.toInt(),
                     fg = 0xFF24171C.toInt(),
-                    muted = 0xFF6E5861.toInt()
+                    muted = 0xFF6E5861.toInt(),
+                    icon = 0xFFB63B6B.toInt()
                 )
             } else {
-                Quad(
+                PaletteTokens(
                     outer = 0xFF23181D.toInt(),
                     inner = 0xFF36252C.toInt(),
                     fg = 0xFFF9ECF1.toInt(),
-                    muted = 0xFFC2ABB3.toInt()
+                    muted = 0xFFC2ABB3.toInt(),
+                    icon = 0xFFFFA8C8.toInt()
                 )
             }
             WidgetColorPreset.SLATE -> if (!isNight) {
-                Quad(
+                PaletteTokens(
                     outer = 0xFFF2F3F7.toInt(),
                     inner = 0xFFE2E4EC.toInt(),
                     fg = 0xFF191C20.toInt(),
-                    muted = 0xFF5B5E66.toInt()
+                    muted = 0xFF5B5E66.toInt(),
+                    icon = 0xFF444959.toInt()
                 )
             } else {
-                Quad(
+                PaletteTokens(
                     outer = 0xFF181A1E.toInt(),
                     inner = 0xFF262930.toInt(),
                     fg = 0xFFECEEF4.toInt(),
-                    muted = 0xFFA5A8B2.toInt()
+                    muted = 0xFFA5A8B2.toInt(),
+                    icon = 0xFFC4C8D6.toInt()
                 )
             }
         }

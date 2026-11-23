@@ -1,9 +1,12 @@
 package com.frankov_dev.khmlight
 
+import com.frankov_dev.khmlight.R
 import com.frankov_dev.khmlight.data.DaySchedule
+import com.frankov_dev.khmlight.data.LocationIcon
 import com.frankov_dev.khmlight.data.OutageInterval
 import com.frankov_dev.khmlight.data.OutagesFeed
 import com.frankov_dev.khmlight.data.QueueSchedule
+import com.frankov_dev.khmlight.data.SavedLocation
 import com.frankov_dev.khmlight.widget.BadgeShape
 import com.frankov_dev.khmlight.widget.SignalWaveDrawer
 import com.frankov_dev.khmlight.widget.WidgetColorPreset
@@ -114,5 +117,35 @@ class WidgetDataResolverTest {
         assertEquals(5, BadgeShape.entries.size)
         assertEquals(listOf("B1", "B2", "B3", "B4", "B5"), BadgeShape.entries.map { it.code })
         assertEquals(7, WidgetColorPreset.entries.size)
+    }
+
+    @Test
+    fun headerLabelAndIconReflectSavedLocationOrGenericQueue() {
+        val loc = SavedLocation(id = "loc1", name = "Дім", queueId = "2.1", icon = LocationIcon.HOME)
+        val feed = makeFeed("2026-11-22", listOf(OutageInterval("14:30", "18:00")), 3.5)
+
+        val withLoc = WidgetDataResolver.resolve(
+            feed = feed,
+            queueId = "2.1",
+            lastAppSyncMs = nowMs - 60_000L,
+            nowEpochMs = nowMs,
+            today = today,
+            nowMinute = 13 * 60 + 48,
+            location = loc
+        )
+        assertEquals("Дім (2.1)", withLoc.headerLabel)
+        assertEquals(R.drawable.ic_loc_home, withLoc.iconRes)
+
+        val generic = WidgetDataResolver.resolve(
+            feed = feed,
+            queueId = "2.1",
+            lastAppSyncMs = nowMs - 60_000L,
+            nowEpochMs = nowMs,
+            today = today,
+            nowMinute = 13 * 60 + 48,
+            location = null
+        )
+        assertEquals("Черга 2.1", generic.headerLabel)
+        assertEquals(R.drawable.ic_bolt, generic.iconRes)
     }
 }

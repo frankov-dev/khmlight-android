@@ -2,6 +2,7 @@ package com.frankov_dev.khmlight.notifications
 
 import com.frankov_dev.khmlight.data.OutageInterval
 import com.frankov_dev.khmlight.data.OutagesFeed
+import com.frankov_dev.khmlight.data.SavedLocation
 import com.frankov_dev.khmlight.util.TimeUtils
 import java.time.LocalDate
 import java.time.LocalTime
@@ -12,12 +13,21 @@ data class ScheduledEvent(
     val triggerEpochMs: Long,
     val eventTimeLabel: String,
     val intervalEndLabel: String,
-    val leadMinutes: Int
+    val leadMinutes: Int,
+    val queueId: String = ""
 )
 
 data class UpcomingAlarms(
     val nextOutageWarning: ScheduledEvent?,
     val nextPowerOnWarning: ScheduledEvent?,
+    val nextWidgetTransitionEpochMs: Long?
+)
+
+data class MultiUpcomingAlarms(
+    val nextOutageTriggerMs: Long?,
+    val nextOutageEvents: List<ScheduledEvent>,
+    val nextPowerOnTriggerMs: Long?,
+    val nextPowerOnEvents: List<ScheduledEvent>,
     val nextWidgetTransitionEpochMs: Long?
 )
 
@@ -52,7 +62,7 @@ object ScheduleChangeDetector {
     fun isInQuietHours(hourOfDay: Int): Boolean = hourOfDay >= 23 || hourOfDay < 7
 
     /**
-     * Detect real changes ONLY for my queue on today, or first appearance of tomorrow's schedule.
+     * Detect real changes ONLY for the given queue on today, or first appearance of tomorrow's schedule.
      */
     fun detectChanges(
         oldFeed: OutagesFeed?,
@@ -66,7 +76,7 @@ object ScheduleChangeDetector {
         val todayStr = today.toString()
         val tomorrowStr = today.plusDays(1).toString()
 
-        // 1. Check today's intervals for my queue
+        // 1. Check today's intervals
         val newTodayQ = newFeed.schedules[todayStr]?.queues?.get(queueId)
         val oldTodayQ = oldFeed?.schedules?.get(todayStr)?.queues?.get(queueId)
         if (newTodayQ != null && oldTodayQ != null) {
@@ -107,7 +117,7 @@ object ScheduleChangeDetector {
 
     /**
      * Compute the next upcoming outage warning, power-on warning, and exact widget transition
-     * across today and tomorrow. Handles 24:00 end-of-day cleanly.
+     * across today and tomorrow for a single queue.
      */
     fun computeNextAlarms(
         feed: OutagesFeed?,
@@ -118,65 +128,112 @@ object ScheduleChangeDetector {
         if (feed == null || queueId.isNullOrBlank()) {
             return UpcomingAlarms(null, null, null)
         }
+        val singleLoc = listOf(SavedLocation(id = "single", name = queueId, queueId = queueId, notifyEnabled = true))
+        val multi = computeNextAlarmsForLocations(feed, singleLoc, leadMinutes, now)
+        return UpcomingAlarms(
+            nextOutageWarning = multi.nextOutageEvents.firstOrNull(),
+            nextPowerOnWarning = multi.nextPowerOnEvents.firstOrNull(),
+            nextWidgetTransitionEpochMs = multi.nextWidgetTransitionEpochMs
+        )
+    }
+
+    /**
+     * Compute the earliest upcoming outage warning(s), power-on warning(s), and exact widget transition
+     * across all saved locations. Warnings are filtered to locations with `notifyEnabled == true`;
+     * simultaneous events for different queues are grouped together so none are skipped.
+     */
+    fun computeNextAlarmsForLocations(
+        feed: OutagesFeed?,
+        locations: List<SavedLocation>,
+        leadMinutes: Int,
+        now: ZonedDateTime = TimeUtils.nowKyiv()
+    ): MultiUpcomingAlarms {
+        if (feed == null || locations.isEmpty()) {
+            return MultiUpcomingAlarms(null, emptyList(), null, emptyList(), null)
+        }
 
         val zone = now.zone
         val nowMs = now.toInstant().toEpochMilli()
         val today = now.toLocalDate()
         val candidateDates = listOf(today, today.plusDays(1))
 
-        var bestOutage: ScheduledEvent? = null
-        var bestPowerOn: ScheduledEvent? = null
+        val notifyQueueIds = locations.filter { it.notifyEnabled }.map { it.queueId }.distinct()
+        val allQueueIds = locations.map { it.queueId }.distinct()
+
+        var bestOutageMs: Long? = null
+        val bestOutageEvents = mutableListOf<ScheduledEvent>()
+
+        var bestPowerOnMs: Long? = null
+        val bestPowerOnEvents = mutableListOf<ScheduledEvent>()
+
         var bestTransitionMs: Long? = null
 
         for (date in candidateDates) {
             val daySchedule = feed.schedules[date.toString()] ?: continue
-            val intervals = daySchedule.queues[queueId]?.intervals.orEmpty()
 
-            for (interval in intervals) {
-                val startMs = minuteToEpochMs(date, interval.startMinutes, zone)
-                val endMs = minuteToEpochMs(date, interval.endMinutes, zone)
+            for (queueId in allQueueIds) {
+                val intervals = daySchedule.queues[queueId]?.intervals.orEmpty()
+                val shouldNotify = queueId in notifyQueueIds
 
-                // Exact status transition for widgets (add 5s cushion so minute has rolled over)
-                if (startMs > nowMs) {
-                    val t = startMs + 5_000L
-                    if (bestTransitionMs == null || t < bestTransitionMs) bestTransitionMs = t
-                }
-                if (endMs > nowMs) {
-                    val t = endMs + 5_000L
-                    if (bestTransitionMs == null || t < bestTransitionMs) bestTransitionMs = t
-                }
+                for (interval in intervals) {
+                    val startMs = minuteToEpochMs(date, interval.startMinutes, zone)
+                    val endMs = minuteToEpochMs(date, interval.endMinutes, zone)
 
-                // Outage warning: leadMinutes before start
-                val outageTriggerMs = startMs - leadMinutes * 60_000L
-                if (outageTriggerMs > nowMs) {
-                    if (bestOutage == null || outageTriggerMs < bestOutage.triggerEpochMs) {
-                        bestOutage = ScheduledEvent(
+                    if (startMs > nowMs) {
+                        val t = startMs + 5_000L
+                        if (bestTransitionMs == null || t < bestTransitionMs) bestTransitionMs = t
+                    }
+                    if (endMs > nowMs) {
+                        val t = endMs + 5_000L
+                        if (bestTransitionMs == null || t < bestTransitionMs) bestTransitionMs = t
+                    }
+
+                    if (!shouldNotify) continue
+
+                    val outageTriggerMs = startMs - leadMinutes * 60_000L
+                    if (outageTriggerMs > nowMs) {
+                        val ev = ScheduledEvent(
                             triggerEpochMs = outageTriggerMs,
                             eventTimeLabel = interval.start,
                             intervalEndLabel = interval.end,
-                            leadMinutes = leadMinutes
+                            leadMinutes = leadMinutes,
+                            queueId = queueId
                         )
+                        if (bestOutageMs == null || outageTriggerMs < bestOutageMs) {
+                            bestOutageMs = outageTriggerMs
+                            bestOutageEvents.clear()
+                            bestOutageEvents.add(ev)
+                        } else if (outageTriggerMs == bestOutageMs && bestOutageEvents.none { it.queueId == queueId }) {
+                            bestOutageEvents.add(ev)
+                        }
                     }
-                }
 
-                // Power-on warning: leadMinutes before end
-                val powerOnTriggerMs = endMs - leadMinutes * 60_000L
-                if (powerOnTriggerMs > nowMs) {
-                    if (bestPowerOn == null || powerOnTriggerMs < bestPowerOn.triggerEpochMs) {
-                        bestPowerOn = ScheduledEvent(
+                    val powerOnTriggerMs = endMs - leadMinutes * 60_000L
+                    if (powerOnTriggerMs > nowMs) {
+                        val ev = ScheduledEvent(
                             triggerEpochMs = powerOnTriggerMs,
                             eventTimeLabel = interval.end,
                             intervalEndLabel = interval.end,
-                            leadMinutes = leadMinutes
+                            leadMinutes = leadMinutes,
+                            queueId = queueId
                         )
+                        if (bestPowerOnMs == null || powerOnTriggerMs < bestPowerOnMs) {
+                            bestPowerOnMs = powerOnTriggerMs
+                            bestPowerOnEvents.clear()
+                            bestPowerOnEvents.add(ev)
+                        } else if (powerOnTriggerMs == bestPowerOnMs && bestPowerOnEvents.none { it.queueId == queueId }) {
+                            bestPowerOnEvents.add(ev)
+                        }
                     }
                 }
             }
         }
 
-        return UpcomingAlarms(
-            nextOutageWarning = bestOutage,
-            nextPowerOnWarning = bestPowerOn,
+        return MultiUpcomingAlarms(
+            nextOutageTriggerMs = bestOutageMs,
+            nextOutageEvents = bestOutageEvents,
+            nextPowerOnTriggerMs = bestPowerOnMs,
+            nextPowerOnEvents = bestPowerOnEvents,
             nextWidgetTransitionEpochMs = bestTransitionMs
         )
     }

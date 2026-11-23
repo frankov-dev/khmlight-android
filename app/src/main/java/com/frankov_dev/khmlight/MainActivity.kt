@@ -18,26 +18,33 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.viewpager2.widget.ViewPager2
 import com.frankov_dev.khmlight.data.DaySchedule
+import com.frankov_dev.khmlight.data.LocationQueueGroup
 import com.frankov_dev.khmlight.data.OutagesFeed
 import com.frankov_dev.khmlight.data.PrefsManager
+import com.frankov_dev.khmlight.data.QueueRevisionDiff
+import com.frankov_dev.khmlight.data.SavedLocation
+import com.frankov_dev.khmlight.data.SavedLocationCodec
+import com.frankov_dev.khmlight.data.groupByQueuePreservingOrder
 import com.frankov_dev.khmlight.databinding.ActivityMainBinding
 import com.frankov_dev.khmlight.notifications.NotificationHelper
 import com.frankov_dev.khmlight.notifications.OutageAlarmScheduler
 import com.frankov_dev.khmlight.ui.DaySelection
 import com.frankov_dev.khmlight.ui.HistoryDayBottomSheet
+import com.frankov_dev.khmlight.ui.LocationEditorBottomSheet
+import com.frankov_dev.khmlight.ui.LocationGroupBottomSheet
 import com.frankov_dev.khmlight.ui.M3Motion
 import com.frankov_dev.khmlight.ui.MainTab
 import com.frankov_dev.khmlight.ui.MainUiState
 import com.frankov_dev.khmlight.ui.MainViewModel
 import com.frankov_dev.khmlight.ui.OperationalMessageBottomSheet
-import com.frankov_dev.khmlight.ui.QueuePickerBottomSheet
+import com.frankov_dev.khmlight.ui.ScheduleRevisionsBottomSheet
 import com.frankov_dev.khmlight.ui.SettingsActivity
 import com.frankov_dev.khmlight.ui.adapters.AllQueuesPagerAdapter
 import com.frankov_dev.khmlight.ui.adapters.HistoryAdapter
 import com.frankov_dev.khmlight.ui.adapters.MyQueuePagerAdapter
 import com.frankov_dev.khmlight.util.TimeUtils
+import com.google.android.material.chip.Chip
 import com.google.android.material.color.MaterialColors
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.launch
 
@@ -52,7 +59,9 @@ class MainActivity : AppCompatActivity() {
 
     private var appliedDynamicColors: Boolean = true
     private var isHorizontalDragging: Boolean = false
+    private var isLocationDragging: Boolean = false
     private var lastRenderedTab: MainTab? = null
+    private var lastHistoryChipsSig: String? = null
 
     private val requestNotificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -147,8 +156,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupPagersAndLists() {
-        // Tab 1: My Queue ViewPager2 (Today / Tomorrow)
-        myQueuePagerAdapter = MyQueuePagerAdapter()
+        // Tab 1: My Queues ViewPager2 (Today / Tomorrow) with Drag-and-Drop grouped location blocks
+        myQueuePagerAdapter = MyQueuePagerAdapter(
+            onEditLocation = { location -> openLocationEditorForEdit(location) },
+            onEditGroup = { group -> openGroupEditChooser(group) },
+            onShowRevisions = { dateKey, diff -> openScheduleRevisionsSheet(dateKey, diff) },
+            onLocationsReordered = { reordered -> viewModel.reorderLocations(reordered) },
+            onDraggingChanged = { dragging ->
+                isLocationDragging = dragging
+                binding.swipeRefresh.isEnabled = !dragging
+                binding.vpMyQueue.isUserInputEnabled = !dragging
+            }
+        )
         binding.vpMyQueue.adapter = myQueuePagerAdapter
         binding.vpMyQueue.offscreenPageLimit = 1
         binding.vpMyQueue.setPageTransformer(M3Motion.dayPagerTransformer())
@@ -165,24 +184,10 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
-        // Tab 2: All Queues ViewPager2 (Today / Tomorrow)
-        allQueuesPagerAdapter = AllQueuesPagerAdapter { queueId ->
-            if (queueId != viewModel.uiState.value.selectedQueue) {
-                MaterialAlertDialogBuilder(this)
-                    .setTitle(getString(R.string.queue_format, queueId))
-                    .setMessage(getString(R.string.set_as_my_queue) + "?")
-                    .setPositiveButton(R.string.set_as_my_queue) { _, _ ->
-                        viewModel.selectQueue(queueId)
-                        Snackbar.make(
-                            binding.root,
-                            getString(R.string.my_queue_updated, queueId),
-                            Snackbar.LENGTH_SHORT
-                        ).show()
-                    }
-                    .setNegativeButton(R.string.close, null)
-                    .show()
-            }
-        }
+        // Tab 2: All Queues ViewPager2 (Today / Tomorrow) — display only (revision badges remain clickable)
+        allQueuesPagerAdapter = AllQueuesPagerAdapter(
+            onRevisionBadgeClicked = { dateKey, diff -> openScheduleRevisionsSheet(dateKey, diff) }
+        )
         binding.vpAllQueues.adapter = allQueuesPagerAdapter
         binding.vpAllQueues.offscreenPageLimit = 1
         binding.vpAllQueues.setPageTransformer(M3Motion.dayPagerTransformer())
@@ -206,9 +211,8 @@ class MainActivity : AppCompatActivity() {
         binding.rvHistory.layoutManager = LinearLayoutManager(this)
         binding.rvHistory.adapter = historyAdapter
 
-        // Prevent pull-to-refresh while scrolled down inside ViewPager2 pages or dragging horizontally
         binding.swipeRefresh.setOnChildScrollUpCallback { _, _ ->
-            if (isHorizontalDragging) return@setOnChildScrollUpCallback true
+            if (isHorizontalDragging || isLocationDragging) return@setOnChildScrollUpCallback true
             when (viewModel.uiState.value.activeTab) {
                 MainTab.MY_QUEUE -> myQueuePagerAdapter.canScrollUp(binding.vpMyQueue.currentItem)
                 MainTab.ALL_QUEUES -> allQueuesPagerAdapter.canScrollUp(binding.vpAllQueues.currentItem)
@@ -224,14 +228,14 @@ class MainActivity : AppCompatActivity() {
         binding.btnRetry.setOnClickListener {
             viewModel.refresh(showFullLoader = true)
         }
-        M3Motion.attachPressSpring(binding.chipMyQueueSelector)
+        M3Motion.attachPressSpring(binding.chipAddLocation)
         M3Motion.attachPressSpring(binding.btnOperationalMessage, pressedScale = 0.92f)
         M3Motion.attachPressSpring(binding.btnOnboardingSelectQueue)
         binding.btnOnboardingSelectQueue.setOnClickListener {
-            openQueuePicker()
+            openLocationEditorForCreate()
         }
-        binding.chipMyQueueSelector.setOnClickListener {
-            openQueuePicker()
+        binding.chipAddLocation.setOnClickListener {
+            openLocationEditorForCreate()
         }
         binding.btnOperationalMessage.setOnClickListener {
             openActiveOperationalMessage()
@@ -261,10 +265,6 @@ class MainActivity : AppCompatActivity() {
             if (binding.vpAllQueues.currentItem != targetPage) {
                 binding.vpAllQueues.setCurrentItem(targetPage, true)
             }
-        }
-        binding.historyFilterChipGroup.setOnCheckedStateChangeListener { _, checkedIds ->
-            val onlyMy = checkedIds.contains(R.id.chipHistoryMyQueue)
-            viewModel.setHistoryOnlyMyQueue(onlyMy)
         }
     }
 
@@ -329,8 +329,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderMyQueueTab(state: MainUiState, feed: OutagesFeed) {
-        val myQueue = state.selectedQueue
-        if (myQueue == null) {
+        val locations = state.savedLocations
+        if (locations.isEmpty()) {
             binding.onboardingCard.visibility = View.VISIBLE
             binding.myQueueContent.visibility = View.GONE
             return
@@ -339,7 +339,6 @@ class MainActivity : AppCompatActivity() {
         binding.onboardingCard.visibility = View.GONE
         binding.myQueueContent.visibility = View.VISIBLE
 
-        binding.chipMyQueueSelector.text = getString(R.string.queue_format, myQueue)
         binding.tvLocalUpdated.text = getString(
             R.string.local_updated_short,
             TimeUtils.formatEpochMs(state.lastAppSyncMs)
@@ -369,7 +368,7 @@ class MainActivity : AppCompatActivity() {
 
         myQueuePagerAdapter.submitData(
             feed = feed,
-            selectedQueue = myQueue
+            locations = locations
         )
     }
 
@@ -388,9 +387,19 @@ class MainActivity : AppCompatActivity() {
         val feed = state.feed ?: return
         val day = resolveMyQueueDaySchedule(state, feed) ?: return
         val msg = day.operationalMessage?.takeIf { it.isNotBlank() } ?: return
+        val prevMsgs = day.previousSchedules
+            .mapNotNull { it.operationalMessage?.takeIf { m -> m.isNotBlank() && m != msg } }
+            .distinct()
         val dateLabel = TimeUtils.formatDateHeading(day.date)
-        OperationalMessageBottomSheet.newInstance(dateLabel, msg)
+        OperationalMessageBottomSheet.newInstance(dateLabel, msg, prevMsgs)
             .show(supportFragmentManager, "operational_message")
+    }
+
+    private fun openScheduleRevisionsSheet(dateKey: String, diff: QueueRevisionDiff) {
+        ScheduleRevisionsBottomSheet().apply {
+            this.dateKey = dateKey
+            this.diff = diff
+        }.show(supportFragmentManager, "schedule_revisions")
     }
 
     private fun renderAllQueuesTab(state: MainUiState, feed: OutagesFeed) {
@@ -414,41 +423,108 @@ class MainActivity : AppCompatActivity() {
 
         allQueuesPagerAdapter.submitData(
             feed = feed,
-            selectedQueue = state.selectedQueue
+            savedLocations = state.savedLocations
         )
     }
 
     private fun renderHistoryTab(state: MainUiState, feed: OutagesFeed) {
-        val targetChipId = if (state.historyOnlyMyQueue && state.selectedQueue != null) {
-            R.id.chipHistoryMyQueue
-        } else {
-            R.id.chipHistoryAllQueues
+        val groups = state.savedLocations.groupByQueuePreservingOrder()
+        val selectedGroup = state.historyFilterLocationId?.let { filterId ->
+            groups.firstOrNull { g -> g.locations.any { it.id == filterId } }
         }
-        if (binding.historyFilterChipGroup.checkedChipId != targetChipId) {
-            binding.historyFilterChipGroup.check(targetChipId)
+
+        val chipsSig = "${selectedGroup?.queueId}|" + groups.joinToString("|") { g ->
+            g.queueId + ":" + g.locations.joinToString(",") { "${it.id}:${it.name}:${it.icon.name}" }
         }
-        binding.chipHistoryMyQueue.isEnabled = state.selectedQueue != null
+        if (chipsSig != lastHistoryChipsSig) {
+            lastHistoryChipsSig = chipsSig
+            val groupView = binding.historyFilterChipGroup
+            groupView.removeAllViews()
+
+            for (g in groups) {
+                val chip = Chip(this, null, com.google.android.material.R.attr.chipStyle).apply {
+                    text = g.displayTitleWithQueue
+                    setChipIconResource(g.primary.icon.iconRes)
+                    isChipIconVisible = true
+                    isCheckable = true
+                    isChecked = selectedGroup?.queueId == g.queueId
+                    setOnClickListener {
+                        viewModel.setHistoryFilterLocation(g.primary.id)
+                    }
+                }
+                groupView.addView(chip)
+            }
+
+            val allChip = Chip(this, null, com.google.android.material.R.attr.chipStyle).apply {
+                text = getString(R.string.history_filter_all)
+                isCheckable = true
+                isChecked = selectedGroup == null
+                setOnClickListener {
+                    viewModel.setHistoryFilterLocation(null)
+                }
+            }
+            groupView.addView(allChip)
+        }
 
         val days = feed.availableDates.mapNotNull { feed.schedules[it] }
         historyAdapter.submitData(
             days = days,
-            myQueueId = state.selectedQueue,
-            onlyMyQueue = state.historyOnlyMyQueue && state.selectedQueue != null
+            selectedGroup = selectedGroup
         )
     }
 
-    private fun openQueuePicker() {
-        val sheet = QueuePickerBottomSheet.newInstance(viewModel.uiState.value.selectedQueue)
-        sheet.onQueueSelected = { queueId ->
-            viewModel.selectQueue(queueId)
-            maybeRequestNotificationPermission()
+    private fun openGroupEditChooser(group: LocationQueueGroup) {
+        val sheet = LocationGroupBottomSheet().apply {
+            this.group = group
+            this.canAddMore = viewModel.uiState.value.savedLocations.size < SavedLocationCodec.MAX_LOCATIONS
+            this.onEditLocation = { loc -> openLocationEditorForEdit(loc) }
+            this.onAddOnSameQueue = { queueId -> openLocationEditorForCreate(preselectedQueue = queueId) }
+        }
+        sheet.show(supportFragmentManager, "location_group_sheet")
+    }
+
+    private fun openLocationEditorForCreate(preselectedQueue: String? = null) {
+        if (viewModel.uiState.value.savedLocations.size >= SavedLocationCodec.MAX_LOCATIONS) {
+            Snackbar.make(binding.root, R.string.location_limit_reached, Snackbar.LENGTH_SHORT).show()
+            return
+        }
+        val sheet = LocationEditorBottomSheet.newForCreate(preselectedQueue)
+        sheet.onSaveLocation = { loc ->
+            viewModel.saveLocation(loc)
+            if (loc.notifyEnabled) {
+                maybeRequestNotificationPermission()
+            }
             Snackbar.make(
                 binding.root,
-                getString(R.string.my_queue_updated, queueId),
+                getString(R.string.location_saved_msg, loc.name, loc.queueId),
                 Snackbar.LENGTH_SHORT
             ).show()
         }
-        sheet.show(supportFragmentManager, "queue_picker")
+        sheet.show(supportFragmentManager, "location_editor_create")
+    }
+
+    private fun openLocationEditorForEdit(location: SavedLocation) {
+        val sheet = LocationEditorBottomSheet.newForEdit(location)
+        sheet.onSaveLocation = { updated ->
+            viewModel.saveLocation(updated)
+            if (updated.notifyEnabled) {
+                maybeRequestNotificationPermission()
+            }
+            Snackbar.make(
+                binding.root,
+                getString(R.string.location_saved_msg, updated.name, updated.queueId),
+                Snackbar.LENGTH_SHORT
+            ).show()
+        }
+        sheet.onDeleteLocation = { removed ->
+            viewModel.deleteLocation(removed.id)
+            Snackbar.make(
+                binding.root,
+                getString(R.string.location_deleted_msg, removed.name),
+                Snackbar.LENGTH_SHORT
+            ).show()
+        }
+        sheet.show(supportFragmentManager, "location_editor_edit")
     }
 
     private fun maybeRequestNotificationPermission() {
@@ -463,14 +539,9 @@ class MainActivity : AppCompatActivity() {
     private fun openHistoryDaySheet(day: DaySchedule) {
         val sheet = HistoryDayBottomSheet().apply {
             daySchedule = day
-            myQueueId = viewModel.uiState.value.selectedQueue
-            onSelectAsMyQueue = { queueId ->
-                viewModel.selectQueue(queueId)
-                Snackbar.make(
-                    binding.root,
-                    getString(R.string.my_queue_updated, queueId),
-                    Snackbar.LENGTH_SHORT
-                ).show()
+            savedLocations = viewModel.uiState.value.savedLocations
+            onRevisionBadgeClicked = { dateKey, diff ->
+                openScheduleRevisionsSheet(dateKey, diff)
             }
         }
         sheet.show(supportFragmentManager, "history_day")

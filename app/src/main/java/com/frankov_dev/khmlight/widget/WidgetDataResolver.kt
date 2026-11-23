@@ -1,8 +1,11 @@
 package com.frankov_dev.khmlight.widget
 
+import androidx.annotation.DrawableRes
+import com.frankov_dev.khmlight.R
 import com.frankov_dev.khmlight.data.DaySchedule
 import com.frankov_dev.khmlight.data.OutageInterval
 import com.frankov_dev.khmlight.data.OutagesFeed
+import com.frankov_dev.khmlight.data.SavedLocation
 import com.frankov_dev.khmlight.util.TimeUtils
 import java.time.LocalDate
 
@@ -14,6 +17,8 @@ enum class WidgetPowerMood {
 
 data class ResolvedWidgetData(
     val queueBadge: String,
+    val headerLabel: String = "KHMlight",
+    @param:DrawableRes val iconRes: Int = R.drawable.ic_bolt,
     val statusTitle: String,
     val badgeTimerText: String,
     val badgeCompactTimerText: String,
@@ -55,17 +60,32 @@ object WidgetDataResolver {
         }
     }
 
+    fun buildHeaderLabel(location: SavedLocation?, queueId: String?): String {
+        return when {
+            location != null -> "${location.name} (${location.queueId})"
+            !queueId.isNullOrBlank() -> "Черга $queueId"
+            else -> "KHMlight"
+        }
+    }
+
     fun resolve(
         feed: OutagesFeed?,
         queueId: String?,
         lastAppSyncMs: Long?,
         nowEpochMs: Long = System.currentTimeMillis(),
         today: LocalDate = TimeUtils.nowKyiv().toLocalDate(),
-        nowMinute: Int = TimeUtils.currentMinuteOfDay()
+        nowMinute: Int = TimeUtils.currentMinuteOfDay(),
+        location: SavedLocation? = null
     ): ResolvedWidgetData {
-        if (queueId.isNullOrBlank()) {
+        val effectiveQueueId = location?.queueId ?: queueId
+        val headerLabel = buildHeaderLabel(location, effectiveQueueId)
+        val iconRes = location?.icon?.iconRes ?: R.drawable.ic_bolt
+
+        if (effectiveQueueId.isNullOrBlank()) {
             return ResolvedWidgetData(
                 queueBadge = "—",
+                headerLabel = headerLabel,
+                iconRes = iconRes,
                 statusTitle = "Оберіть чергу",
                 badgeTimerText = "—",
                 badgeCompactTimerText = "—",
@@ -84,7 +104,9 @@ object WidgetDataResolver {
 
         if (feed == null || feed.availableDates.isEmpty()) {
             return ResolvedWidgetData(
-                queueBadge = queueId,
+                queueBadge = effectiveQueueId,
+                headerLabel = headerLabel,
+                iconRes = iconRes,
                 statusTitle = "Дані відсутні",
                 badgeTimerText = "—",
                 badgeCompactTimerText = "—",
@@ -107,7 +129,9 @@ object WidgetDataResolver {
 
         if (todaySchedule != null) {
             return resolveToday(
-                queueId = queueId,
+                queueId = effectiveQueueId,
+                headerLabel = headerLabel,
+                iconRes = iconRes,
                 daySchedule = todaySchedule,
                 nowMinute = nowMinute,
                 isStale = syncIsStale
@@ -123,11 +147,13 @@ object WidgetDataResolver {
         if (futureDate != null) {
             val (dateStr, _) = futureDate
             val day = feed.schedules[dateStr]
-            val q = day?.queues?.get(queueId)
+            val q = day?.queues?.get(effectiveQueueId)
             val intervals = q?.intervals.orEmpty()
             val hoursStr = TimeUtils.formatHours(q?.totalHoursOff ?: 0.0)
             return ResolvedWidgetData(
-                queueBadge = queueId,
+                queueBadge = effectiveQueueId,
+                headerLabel = headerLabel,
+                iconRes = iconRes,
                 statusTitle = TimeUtils.formatShortDayButton(dateStr, today),
                 badgeTimerText = hoursStr,
                 badgeCompactTimerText = hoursStr,
@@ -146,7 +172,9 @@ object WidgetDataResolver {
 
         // Only past dates exist -> stale
         return ResolvedWidgetData(
-            queueBadge = queueId,
+            queueBadge = effectiveQueueId,
+            headerLabel = headerLabel,
+            iconRes = iconRes,
             statusTitle = "Дані застаріли",
             badgeTimerText = "—",
             badgeCompactTimerText = "—",
@@ -165,6 +193,8 @@ object WidgetDataResolver {
 
     private fun resolveToday(
         queueId: String,
+        headerLabel: String,
+        @DrawableRes iconRes: Int,
         daySchedule: DaySchedule,
         nowMinute: Int,
         isStale: Boolean
@@ -173,6 +203,8 @@ object WidgetDataResolver {
         if (q == null) {
             return ResolvedWidgetData(
                 queueBadge = queueId,
+                headerLabel = headerLabel,
+                iconRes = iconRes,
                 statusTitle = "Дані відсутні",
                 badgeTimerText = "—",
                 badgeCompactTimerText = "—",
@@ -195,6 +227,8 @@ object WidgetDataResolver {
         if (intervals.isEmpty()) {
             return ResolvedWidgetData(
                 queueBadge = queueId,
+                headerLabel = headerLabel,
+                iconRes = iconRes,
                 statusTitle = "Є світло",
                 badgeTimerText = "24 год",
                 badgeCompactTimerText = "24 год",
@@ -218,6 +252,8 @@ object WidgetDataResolver {
                 val endTime = live.nextChangeTime?.takeIf { it.isNotBlank() }
                 ResolvedWidgetData(
                     queueBadge = queueId,
+                    headerLabel = headerLabel,
+                    iconRes = iconRes,
                     statusTitle = "Немає світла",
                     badgeTimerText = formatExpressiveTimer(mins),
                     badgeCompactTimerText = formatCompactTimer(mins),
@@ -237,6 +273,8 @@ object WidgetDataResolver {
                 val mins = live.minutesUntilChange
                 ResolvedWidgetData(
                     queueBadge = queueId,
+                    headerLabel = headerLabel,
+                    iconRes = iconRes,
                     statusTitle = "Є світло",
                     badgeTimerText = formatExpressiveTimer(mins),
                     badgeCompactTimerText = formatCompactTimer(mins),
@@ -255,6 +293,8 @@ object WidgetDataResolver {
             else -> {
                 ResolvedWidgetData(
                     queueBadge = queueId,
+                    headerLabel = headerLabel,
+                    iconRes = iconRes,
                     statusTitle = "Є світло",
                     badgeTimerText = "✓",
                     badgeCompactTimerText = "✓",

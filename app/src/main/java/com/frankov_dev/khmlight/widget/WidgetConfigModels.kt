@@ -37,7 +37,8 @@ data class WidgetInstanceConfig(
     val badgeShape: BadgeShape = BadgeShape.B1_SQUIRCLE,
     val colorPreset: WidgetColorPreset = WidgetColorPreset.DYNAMIC,
     val themeMode: WidgetThemeMode = WidgetThemeMode.SYSTEM,
-    val queueOverride: String? = null
+    val queueOverride: String? = null,
+    val locationId: String? = null
 )
 
 class WidgetPrefs(context: Context) {
@@ -54,6 +55,11 @@ class WidgetPrefs(context: Context) {
                     putString(keyQueue(widgetId), config.queueOverride)
                 } else {
                     remove(keyQueue(widgetId))
+                }
+                if (config.locationId != null) {
+                    putString(keyLocation(widgetId), config.locationId)
+                } else {
+                    remove(keyLocation(widgetId))
                 }
             }
             .apply()
@@ -82,12 +88,14 @@ class WidgetPrefs(context: Context) {
             .getOrDefault(WidgetThemeMode.SYSTEM)
 
         val queue = prefs.getString(keyQueue(widgetId), null)
+        val locationId = prefs.getString(keyLocation(widgetId), null)
 
         return WidgetInstanceConfig(
             badgeShape = shape,
             colorPreset = colorPreset,
             themeMode = themeMode,
-            queueOverride = queue
+            queueOverride = queue,
+            locationId = locationId
         )
     }
 
@@ -97,6 +105,7 @@ class WidgetPrefs(context: Context) {
             .remove(keyColor(widgetId))
             .remove(keyTheme(widgetId))
             .remove(keyQueue(widgetId))
+            .remove(keyLocation(widgetId))
             .apply()
     }
 
@@ -104,4 +113,5 @@ class WidgetPrefs(context: Context) {
     private fun keyColor(id: Int) = "w_${id}_color"
     private fun keyTheme(id: Int) = "w_${id}_theme"
     private fun keyQueue(id: Int) = "w_${id}_queue"
+    private fun keyLocation(id: Int) = "w_${id}_location_id"
 }

@@ -15,9 +15,9 @@ import kotlinx.coroutines.launch
 object OutageAlarmScheduler {
 
     const val EXTRA_ALARM_TYPE = "alarm_type"
-    const val EXTRA_QUEUE_ID = "queue_id"
-    const val EXTRA_EVENT_TIME = "event_time"
-    const val EXTRA_INTERVAL_END = "interval_end"
+    const val EXTRA_QUEUE_IDS = "queue_ids"
+    const val EXTRA_EVENT_TIMES = "event_times"
+    const val EXTRA_INTERVAL_ENDS = "interval_ends"
     const val EXTRA_LEAD_MINUTES = "lead_minutes"
 
     const val TYPE_OUTAGE_WARNING = "outage_warning"
@@ -39,55 +39,49 @@ object OutageAlarmScheduler {
     fun schedule(context: Context, feed: OutagesFeed?) {
         val appCtx = context.applicationContext
         val prefs = PrefsManager(appCtx)
-        val queueId = prefs.getSelectedQueue()
+        val locations = prefs.getSavedLocations()
         val alarmManager = appCtx.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
 
-        if (feed == null || queueId.isNullOrBlank()) {
+        if (feed == null || locations.isEmpty()) {
             cancelAll(appCtx, alarmManager)
             return
         }
 
         val leadMinutes = prefs.getLeadTimeMinutes()
-        val alarms = ScheduleChangeDetector.computeNextAlarms(
+        val alarms = ScheduleChangeDetector.computeNextAlarmsForLocations(
             feed = feed,
-            queueId = queueId,
+            locations = locations,
             leadMinutes = leadMinutes
         )
 
-        // 1. Outage warning alarm
-        if (prefs.isNotifyOutageEnabled() && alarms.nextOutageWarning != null) {
-            val ev = alarms.nextOutageWarning
+        // 1. Outage warning alarm(s) for all enabled locations sharing the earliest trigger
+        if (prefs.isNotifyOutageEnabled() && alarms.nextOutageTriggerMs != null && alarms.nextOutageEvents.isNotEmpty()) {
             setAlarm(
                 alarmManager,
-                ev.triggerEpochMs,
+                alarms.nextOutageTriggerMs,
                 buildPendingIntent(
                     context = appCtx,
                     requestCode = REQ_OUTAGE,
                     type = TYPE_OUTAGE_WARNING,
-                    queueId = queueId,
-                    eventTime = ev.eventTimeLabel,
-                    intervalEnd = ev.intervalEndLabel,
-                    leadMinutes = ev.leadMinutes
+                    events = alarms.nextOutageEvents,
+                    leadMinutes = leadMinutes
                 )
             )
         } else {
             cancelAlarm(appCtx, alarmManager, REQ_OUTAGE, TYPE_OUTAGE_WARNING)
         }
 
-        // 2. Power-on warning alarm
-        if (prefs.isNotifyPowerOnEnabled() && alarms.nextPowerOnWarning != null) {
-            val ev = alarms.nextPowerOnWarning
+        // 2. Power-on warning alarm(s)
+        if (prefs.isNotifyPowerOnEnabled() && alarms.nextPowerOnTriggerMs != null && alarms.nextPowerOnEvents.isNotEmpty()) {
             setAlarm(
                 alarmManager,
-                ev.triggerEpochMs,
+                alarms.nextPowerOnTriggerMs,
                 buildPendingIntent(
                     context = appCtx,
                     requestCode = REQ_POWER_ON,
                     type = TYPE_POWER_ON_WARNING,
-                    queueId = queueId,
-                    eventTime = ev.eventTimeLabel,
-                    intervalEnd = ev.intervalEndLabel,
-                    leadMinutes = ev.leadMinutes
+                    events = alarms.nextPowerOnEvents,
+                    leadMinutes = leadMinutes
                 )
             )
         } else {
@@ -102,8 +96,7 @@ object OutageAlarmScheduler {
                 buildPendingIntent(
                     context = appCtx,
                     requestCode = REQ_WIDGET_TRANSITION,
-                    type = TYPE_WIDGET_TRANSITION,
-                    queueId = queueId
+                    type = TYPE_WIDGET_TRANSITION
                 )
             )
         } else {
@@ -143,17 +136,15 @@ object OutageAlarmScheduler {
         context: Context,
         requestCode: Int,
         type: String,
-        queueId: String = "",
-        eventTime: String = "",
-        intervalEnd: String = "",
+        events: List<ScheduledEvent> = emptyList(),
         leadMinutes: Int = 15
     ): PendingIntent {
         val intent = Intent(context, OutageAlarmReceiver::class.java).apply {
             action = "com.frankov_dev.khmlight.ALARM_$type"
             putExtra(EXTRA_ALARM_TYPE, type)
-            putExtra(EXTRA_QUEUE_ID, queueId)
-            putExtra(EXTRA_EVENT_TIME, eventTime)
-            putExtra(EXTRA_INTERVAL_END, intervalEnd)
+            putStringArrayListExtra(EXTRA_QUEUE_IDS, ArrayList(events.map { it.queueId }))
+            putStringArrayListExtra(EXTRA_EVENT_TIMES, ArrayList(events.map { it.eventTimeLabel }))
+            putStringArrayListExtra(EXTRA_INTERVAL_ENDS, ArrayList(events.map { it.intervalEndLabel }))
             putExtra(EXTRA_LEAD_MINUTES, leadMinutes)
         }
         val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {

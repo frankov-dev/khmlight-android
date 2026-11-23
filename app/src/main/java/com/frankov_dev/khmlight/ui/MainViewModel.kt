@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.frankov_dev.khmlight.data.OutageRepository
 import com.frankov_dev.khmlight.data.OutagesFeed
 import com.frankov_dev.khmlight.data.PrefsManager
+import com.frankov_dev.khmlight.data.SavedLocation
 import com.frankov_dev.khmlight.notifications.OutageAlarmScheduler
 import com.frankov_dev.khmlight.notifications.ScheduleChangeDetector
 import com.frankov_dev.khmlight.util.TimeUtils
@@ -31,18 +32,20 @@ enum class DaySelection {
 
 data class MainUiState(
     val feed: OutagesFeed? = null,
-    val selectedQueue: String? = null,
+    val savedLocations: List<SavedLocation> = emptyList(),
     val activeTab: MainTab = MainTab.MY_QUEUE,
     val selectedDayMyQueue: DaySelection = DaySelection.TODAY,
     val selectedDayAllQueues: DaySelection = DaySelection.TODAY,
-    val historyOnlyMyQueue: Boolean = true,
+    val historyFilterLocationId: String? = null,
     val lastAppSyncMs: Long? = null,
     val isLoading: Boolean = true,
     val isRefreshing: Boolean = false,
     val isFromCache: Boolean = false,
     val errorMessage: String? = null,
     val clockTick: Long = 0L
-)
+) {
+    val primaryQueue: String? get() = savedLocations.firstOrNull()?.queueId
+}
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -51,8 +54,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _uiState = MutableStateFlow(
         MainUiState(
-            selectedQueue = prefs.getSelectedQueue(),
-            historyOnlyMyQueue = prefs.isHistoryOnlyMyQueue(),
+            savedLocations = prefs.getSavedLocations(),
+            historyFilterLocationId = prefs.getHistoryFilterLocationId(),
             lastAppSyncMs = prefs.getLastAppSyncMs()
         )
     )
@@ -118,9 +121,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun selectQueue(queueId: String) {
-        prefs.setSelectedQueue(queueId)
-        _uiState.update { it.copy(selectedQueue = queueId) }
+    fun saveLocation(location: SavedLocation) {
+        val hadNone = _uiState.value.savedLocations.isEmpty()
+        val updated = prefs.upsertLocation(location)
+        val filterId = if (hadNone) {
+            prefs.setHistoryFilterLocationId(location.id)
+            location.id
+        } else {
+            _uiState.value.historyFilterLocationId
+        }
+        _uiState.update { it.copy(savedLocations = updated, historyFilterLocationId = filterId) }
         val feed = _uiState.value.feed
         if (feed != null) {
             seedSeenSignatures(feed)
@@ -129,26 +139,60 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         OutageAlarmScheduler.schedule(getApplication(), feed)
     }
 
+    fun deleteLocation(locationId: String) {
+        val updated = prefs.deleteLocation(locationId)
+        val currentFilter = _uiState.value.historyFilterLocationId
+        val nextFilter = if (currentFilter == locationId) {
+            val fallback = updated.firstOrNull()?.id
+            prefs.setHistoryFilterLocationId(fallback)
+            fallback
+        } else {
+            currentFilter
+        }
+        _uiState.update { it.copy(savedLocations = updated, historyFilterLocationId = nextFilter) }
+        val feed = _uiState.value.feed
+        WidgetUpdater.updateAllWidgets(getApplication(), feed)
+        OutageAlarmScheduler.schedule(getApplication(), feed)
+    }
+
+    fun reorderLocations(reordered: List<SavedLocation>) {
+        prefs.saveLocations(reordered)
+        _uiState.update { it.copy(savedLocations = reordered) }
+        val feed = _uiState.value.feed
+        WidgetUpdater.updateAllWidgets(getApplication(), feed)
+        OutageAlarmScheduler.schedule(getApplication(), feed)
+    }
+
     private fun seedSeenSignatures(feed: OutagesFeed) {
-        val myQueue = prefs.getSelectedQueue() ?: return
+        val notifyQueues = prefs.getSavedLocations()
+            .filter { it.notifyEnabled }
+            .map { it.queueId }
+            .distinct()
         val today = TimeUtils.todayDateString()
         val tomorrow = TimeUtils.tomorrowDateString()
-        feed.schedules[today]?.queues?.get(myQueue)?.let { q ->
-            prefs.setLastNotifiedTodaySignature(
-                ScheduleChangeDetector.buildSignature(today, myQueue, q.intervals)
-            )
-        }
-        feed.schedules[tomorrow]?.queues?.get(myQueue)?.let { q ->
-            prefs.setLastNotifiedTomorrowSignature(
-                ScheduleChangeDetector.buildSignature(tomorrow, myQueue, q.intervals)
-            )
+        for (queueId in notifyQueues) {
+            feed.schedules[today]?.queues?.get(queueId)?.let { q ->
+                prefs.setLastNotifiedTodaySignature(
+                    queueId,
+                    ScheduleChangeDetector.buildSignature(today, queueId, q.intervals)
+                )
+            }
+            feed.schedules[tomorrow]?.queues?.get(queueId)?.let { q ->
+                prefs.setLastNotifiedTomorrowSignature(
+                    queueId,
+                    ScheduleChangeDetector.buildSignature(tomorrow, queueId, q.intervals)
+                )
+            }
         }
     }
 
     fun syncPrefsFromStorage() {
-        val storedQueue = prefs.getSelectedQueue()
-        if (storedQueue != _uiState.value.selectedQueue) {
-            _uiState.update { it.copy(selectedQueue = storedQueue) }
+        val stored = prefs.getSavedLocations()
+        val storedFilter = prefs.getHistoryFilterLocationId()
+        if (stored != _uiState.value.savedLocations || storedFilter != _uiState.value.historyFilterLocationId) {
+            _uiState.update {
+                it.copy(savedLocations = stored, historyFilterLocationId = storedFilter)
+            }
         }
     }
 
@@ -164,9 +208,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(selectedDayAllQueues = day) }
     }
 
-    fun setHistoryOnlyMyQueue(onlyMy: Boolean) {
-        prefs.setHistoryOnlyMyQueue(onlyMy)
-        _uiState.update { it.copy(historyOnlyMyQueue = onlyMy) }
+    fun setHistoryFilterLocation(locationId: String?) {
+        prefs.setHistoryFilterLocationId(locationId)
+        _uiState.update { it.copy(historyFilterLocationId = locationId) }
     }
 
     fun isDynamicColorsEnabled(): Boolean = prefs.isDynamicColorsEnabled()

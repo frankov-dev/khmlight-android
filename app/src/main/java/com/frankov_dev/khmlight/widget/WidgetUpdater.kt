@@ -86,7 +86,13 @@ object WidgetUpdater {
             isDynamicAvailable = WidgetPaletteResolver.isDynamicColorAvailable()
         )
         val appPrefs = PrefsManager(context)
-        val queueId = config.queueOverride ?: appPrefs.getSelectedQueue()
+        val savedLocations = appPrefs.getSavedLocations()
+        val matchedLocation = when {
+            config.locationId != null -> savedLocations.firstOrNull { it.id == config.locationId }
+            config.queueOverride == null -> savedLocations.firstOrNull()
+            else -> null
+        }
+        val queueId = matchedLocation?.queueId ?: config.queueOverride ?: appPrefs.getSelectedQueue()
 
         val openIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -102,7 +108,8 @@ object WidgetUpdater {
         val data = WidgetDataResolver.resolve(
             feed = feed,
             queueId = queueId,
-            lastAppSyncMs = lastAppSyncMs
+            lastAppSyncMs = lastAppSyncMs,
+            location = matchedLocation
         )
 
         val options = manager.getAppWidgetOptions(widgetId)

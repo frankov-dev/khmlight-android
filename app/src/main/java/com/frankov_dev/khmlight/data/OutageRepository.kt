@@ -21,10 +21,13 @@ class OutageRepository(context: Context) {
     private val prefs = PrefsManager(context)
 
     companion object {
-        const val OUTAGES_URL =
-            "https://raw.githubusercontent.com/frankov-dev/khm_outage_parser/master/docs/outages.json"
-        const val LATEST_URL =
-            "https://raw.githubusercontent.com/frankov-dev/khm_outage_parser/master/docs/latest.json"
+        private const val BASE_DOCS_URL =
+            "https://raw.githubusercontent.com/frankov-dev/khm_outage_parser/master/docs"
+        const val STATUS_URL = "$BASE_DOCS_URL/status.json"
+        const val OUTAGES_URL = "$BASE_DOCS_URL/outages.json"
+        const val TODAY_URL = "$BASE_DOCS_URL/today.json"
+        const val TOMORROW_URL = "$BASE_DOCS_URL/tomorrow.json"
+        const val LATEST_URL = "$BASE_DOCS_URL/latest.json"
         private const val TIMEOUT_MS = 15_000
     }
 
@@ -36,14 +39,67 @@ class OutageRepository(context: Context) {
         feed to prefs.getLastAppSyncMs()
     }
 
+    /**
+     * Two-step smart sync:
+     * 1) Polls lightweight `status.json` (~250B) with ETag + `schedule_hash`.
+     *    If unchanged and local cache already matches current dates, skips downloading `outages.json`.
+     * 2) Otherwise downloads full `outages.json` (with ETag), with fallback to `today.json` + `tomorrow.json` -> `latest.json` -> cache.
+     */
     suspend fun fetchFeed(): FetchResult = withContext(Dispatchers.IO) {
         var lastError: String? = null
         val cached = readCache()
-        val savedEtag = if (cached != null) prefs.getLastEtag() else null
+        val savedHash = prefs.getLastScheduleHash() ?: cached?.scheduleHash
+        var status: FeedStatus? = null
 
-        // Primary URL supports ETag / 304 Not Modified to skip redundant downloads & JSON parsing
+        // Step 1: Fast poll via status.json (~250B)
+        if (cached != null) {
+            try {
+                when (val statusRes = downloadWithEtag(STATUS_URL, prefs.getLastStatusEtag())) {
+                    is HttpResult.NotModified -> {
+                        val nowMs = System.currentTimeMillis()
+                        prefs.setLastAppSyncMs(nowMs)
+                        return@withContext FetchResult(
+                            feed = cached,
+                            isFromCache = false,
+                            syncedAtMs = nowMs
+                        )
+                    }
+                    is HttpResult.Body -> {
+                        val parsedStatus = OutageJsonParser.parseStatusJson(statusRes.text)
+                        status = parsedStatus
+                        prefs.setLastStatusEtag(statusRes.etag)
+                        if (parsedStatus.lastUpdated.isNotBlank()) {
+                            prefs.setLastServerUpdatedIso(parsedStatus.lastUpdated)
+                        }
+
+                        val hashMatches = parsedStatus.scheduleHash.isNotBlank() &&
+                            parsedStatus.scheduleHash == savedHash
+                        val hasTodayInCache = parsedStatus.todayDate == null ||
+                            cached.schedules.containsKey(parsedStatus.todayDate)
+                        val hasTomorrowInCache = !parsedStatus.hasTomorrow ||
+                            parsedStatus.tomorrowDate == null ||
+                            cached.schedules.containsKey(parsedStatus.tomorrowDate)
+
+                        if (hashMatches && hasTodayInCache && hasTomorrowInCache) {
+                            val nowMs = System.currentTimeMillis()
+                            prefs.setLastAppSyncMs(nowMs)
+                            return@withContext FetchResult(
+                                feed = cached,
+                                isFromCache = false,
+                                syncedAtMs = nowMs
+                            )
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+                // Non-fatal: continue directly to outages.json
+            }
+        }
+
+        // Step 2: Download full outages.json (14 days + previous_schedules + schedule_hash)
+        val savedOutagesEtag = if (cached != null) prefs.getLastEtag() else null
         try {
-            when (val response = downloadWithEtag(OUTAGES_URL, savedEtag)) {
+            when (val response = downloadWithEtag(OUTAGES_URL, savedOutagesEtag)) {
                 is HttpResult.NotModified -> {
                     val nowMs = System.currentTimeMillis()
                     prefs.setLastAppSyncMs(nowMs)
@@ -61,6 +117,7 @@ class OutageRepository(context: Context) {
                         val nowMs = System.currentTimeMillis()
                         writeCache(response.text)
                         prefs.setLastEtag(response.etag)
+                        prefs.setLastScheduleHash(parsed.scheduleHash ?: status?.scheduleHash)
                         prefs.setLastServerUpdatedIso(parsed.lastUpdated)
                         prefs.setLastAppSyncMs(nowMs)
                         return@withContext FetchResult(
@@ -75,7 +132,49 @@ class OutageRepository(context: Context) {
             lastError = e.localizedMessage ?: e.javaClass.simpleName
         }
 
-        // Fallback to latest.json if primary failed
+        // Step 3: Fallback to today.json (+ tomorrow.json when available) merged with cached history
+        try {
+            val todayRes = downloadWithEtag(TODAY_URL, etag = null)
+            if (todayRes is HttpResult.Body) {
+                val (todayDay, hash) = OutageJsonParser.parseSingleDayJson(todayRes.text)
+                if (todayDay != null) {
+                    val merged = linkedMapOf<String, DaySchedule>()
+                    cached?.schedules?.forEach { (k, v) -> merged[k] = v }
+                    merged[todayDay.date] = todayDay
+
+                    if (status == null || status.hasTomorrow) {
+                        runCatching {
+                            val tomRes = downloadWithEtag(TOMORROW_URL, etag = null)
+                            if (tomRes is HttpResult.Body) {
+                                val (tomDay, _) = OutageJsonParser.parseSingleDayJson(tomRes.text)
+                                if (tomDay != null) merged[tomDay.date] = tomDay
+                            }
+                        }
+                    }
+
+                    val sortedDates = merged.keys.sortedDescending()
+                    val nowMs = System.currentTimeMillis()
+                    val feed = OutagesFeed(
+                        source = cached?.source.orEmpty(),
+                        lastUpdated = status?.lastUpdated ?: cached?.lastUpdated.orEmpty(),
+                        availableDates = sortedDates,
+                        schedules = merged,
+                        scheduleHash = hash ?: status?.scheduleHash
+                    )
+                    prefs.setLastScheduleHash(feed.scheduleHash)
+                    prefs.setLastAppSyncMs(nowMs)
+                    return@withContext FetchResult(
+                        feed = feed,
+                        isFromCache = false,
+                        syncedAtMs = nowMs
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            lastError = e.localizedMessage ?: e.javaClass.simpleName
+        }
+
+        // Step 4: Fallback to legacy latest.json
         try {
             val response = downloadWithEtag(LATEST_URL, etag = null)
             if (response is HttpResult.Body) {
@@ -84,6 +183,7 @@ class OutageRepository(context: Context) {
                     val nowMs = System.currentTimeMillis()
                     writeCache(response.text)
                     prefs.setLastEtag(null)
+                    prefs.setLastScheduleHash(parsed.scheduleHash)
                     prefs.setLastServerUpdatedIso(parsed.lastUpdated)
                     prefs.setLastAppSyncMs(nowMs)
                     return@withContext FetchResult(
@@ -128,7 +228,7 @@ class OutageRepository(context: Context) {
             useCaches = false
             setRequestProperty("Cache-Control", "no-cache")
             setRequestProperty("Accept", "application/json")
-            setRequestProperty("User-Agent", "KHMlight-Android/1.0")
+            setRequestProperty("User-Agent", "KHMlight-Android/1.1")
             if (!etag.isNullOrBlank()) {
                 setRequestProperty("If-None-Match", etag)
             }

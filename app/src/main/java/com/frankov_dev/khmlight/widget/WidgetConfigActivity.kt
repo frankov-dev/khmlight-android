@@ -33,6 +33,7 @@ class WidgetConfigActivity : AppCompatActivity() {
     private var selectedColorPreset: WidgetColorPreset = WidgetColorPreset.DYNAMIC
     private var selectedThemeMode: WidgetThemeMode = WidgetThemeMode.SYSTEM
     private var selectedQueueOverride: String? = null
+    private var selectedLocationId: String? = null
 
     private val shapeCards = mutableMapOf<BadgeShape, Pair<MaterialCardView, ShapeThumbnailView>>()
 
@@ -107,6 +108,10 @@ class WidgetConfigActivity : AppCompatActivity() {
         selectedColorPreset = existing.colorPreset
         selectedThemeMode = existing.themeMode
         selectedQueueOverride = existing.queueOverride
+        selectedLocationId = existing.locationId
+        if (selectedLocationId == null && selectedQueueOverride == null) {
+            selectedLocationId = PrefsManager(this).getSavedLocations().firstOrNull()?.id
+        }
     }
 
     private fun buildShapePicker() {
@@ -261,23 +266,63 @@ class WidgetConfigActivity : AppCompatActivity() {
         val chipGroup = binding.chipGroupWidgetQueue
         chipGroup.removeAllViews()
 
-        val autoChip = createQueueChip(getString(R.string.widget_queue_auto), null)
-        chipGroup.addView(autoChip)
-        if (selectedQueueOverride == null) autoChip.isChecked = true
+        val savedLocations = PrefsManager(this).getSavedLocations()
+        var matchedSaved = false
+
+        if (savedLocations.isEmpty()) {
+            val autoChip = createQueueChip(getString(R.string.widget_queue_auto), null, null, null)
+            chipGroup.addView(autoChip)
+            if (selectedQueueOverride == null && selectedLocationId == null) {
+                autoChip.isChecked = true
+                matchedSaved = true
+            }
+        } else {
+            savedLocations.forEachIndexed { index, loc ->
+                val chipQueueValue = if (index == 0) null else loc.queueId
+                val chip = createQueueChip(
+                    label = "${loc.name} · ${loc.queueId}",
+                    queueValue = chipQueueValue,
+                    locationIdValue = loc.id,
+                    iconRes = loc.icon.iconRes
+                )
+                chipGroup.addView(chip)
+                val isMatch = when {
+                    selectedLocationId != null -> selectedLocationId == loc.id
+                    index == 0 && selectedQueueOverride == null -> true
+                    else -> false
+                }
+                if (!matchedSaved && isMatch) {
+                    chip.isChecked = true
+                    matchedSaved = true
+                }
+            }
+        }
 
         for (queueId in QueueConstants.ALL_QUEUES) {
-            val chip = createQueueChip(queueId, queueId)
+            val chip = createQueueChip(queueId, queueId, null, null)
             chipGroup.addView(chip)
-            if (selectedQueueOverride == queueId) chip.isChecked = true
+            if (!matchedSaved && selectedQueueOverride == queueId) {
+                chip.isChecked = true
+            }
         }
     }
 
-    private fun createQueueChip(label: String, queueValue: String?): Chip {
+    private fun createQueueChip(
+        label: String,
+        queueValue: String?,
+        locationIdValue: String?,
+        iconRes: Int?
+    ): Chip {
         return Chip(this, null, com.google.android.material.R.attr.chipStyle).apply {
             text = label
             isCheckable = true
+            if (iconRes != null) {
+                setChipIconResource(iconRes)
+                isChipIconVisible = true
+            }
             setOnClickListener {
                 selectedQueueOverride = queueValue
+                selectedLocationId = locationIdValue
                 updateLivePreview()
             }
         }
@@ -287,9 +332,21 @@ class WidgetConfigActivity : AppCompatActivity() {
         binding.tvPreviewTitle.text =
             "${selectedShape.code} · ${selectedShape.title}  •  ${selectedColorPreset.titleUk}"
 
-        val queueBadge = selectedQueueOverride ?: PrefsManager(this).getSelectedQueue() ?: "2.1"
+        val prefs = PrefsManager(this)
+        val savedLocations = prefs.getSavedLocations()
+        val matchedLoc = when {
+            selectedLocationId != null -> savedLocations.firstOrNull { it.id == selectedLocationId }
+            selectedQueueOverride == null -> savedLocations.firstOrNull()
+            else -> null
+        }
+        val queueBadge = matchedLoc?.queueId ?: selectedQueueOverride ?: prefs.getSelectedQueue() ?: "2.1"
+        val headerLabel = WidgetDataResolver.buildHeaderLabel(matchedLoc, queueBadge)
+        val iconRes = matchedLoc?.icon?.iconRes ?: R.drawable.ic_bolt
+
         val sampleData = ResolvedWidgetData(
             queueBadge = queueBadge,
+            headerLabel = headerLabel,
+            iconRes = iconRes,
             statusTitle = "Є світло",
             badgeTimerText = "42 хв",
             badgeCompactTimerText = "42 хв",
@@ -333,7 +390,8 @@ class WidgetConfigActivity : AppCompatActivity() {
         badgeShape = selectedShape,
         colorPreset = selectedColorPreset,
         themeMode = selectedThemeMode,
-        queueOverride = selectedQueueOverride
+        queueOverride = selectedQueueOverride,
+        locationId = selectedLocationId
     )
 
     private fun saveAndFinish() {

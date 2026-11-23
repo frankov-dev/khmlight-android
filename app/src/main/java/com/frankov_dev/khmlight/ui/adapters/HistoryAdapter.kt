@@ -6,6 +6,7 @@ import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import com.frankov_dev.khmlight.R
 import com.frankov_dev.khmlight.data.DaySchedule
+import com.frankov_dev.khmlight.data.LocationQueueGroup
 import com.frankov_dev.khmlight.databinding.ItemHistoryDayBinding
 import com.frankov_dev.khmlight.ui.M3Motion
 import com.frankov_dev.khmlight.util.TimeUtils
@@ -15,23 +16,21 @@ class HistoryAdapter(
 ) : RecyclerView.Adapter<HistoryAdapter.ViewHolder>() {
 
     private var days: List<DaySchedule> = emptyList()
-    private var myQueueId: String? = null
-    private var onlyMyQueue: Boolean = true
+    private var selectedGroup: LocationQueueGroup? = null
     private var lastSignature: String? = null
     private val animatedPositions = HashSet<Int>()
 
     fun submitData(
         days: List<DaySchedule>,
-        myQueueId: String?,
-        onlyMyQueue: Boolean
+        selectedGroup: LocationQueueGroup?
     ) {
-        val sig = "$myQueueId|$onlyMyQueue|" + days.joinToString(",") { it.date }
+        val sig = "${selectedGroup?.queueId}|${selectedGroup?.joinedNames}|" +
+            days.joinToString(",") { it.date }
         val changed = sig != lastSignature
         lastSignature = sig
 
         this.days = days
-        this.myQueueId = myQueueId
-        this.onlyMyQueue = onlyMyQueue
+        this.selectedGroup = selectedGroup
 
         if (changed) {
             animatedPositions.clear()
@@ -67,21 +66,22 @@ class HistoryAdapter(
             val ctx = binding.root.context
             binding.tvHistoryDate.text = TimeUtils.formatDateHeading(day.date)
 
-            val mySchedule = myQueueId?.let { day.queues[it] }
-            if (onlyMyQueue && mySchedule != null) {
-                binding.tvHistoryHours.text = TimeUtils.formatHours(mySchedule.totalHoursOff)
+            val group = selectedGroup
+            val locSchedule = group?.let { day.queues[it.queueId] }
+            if (group != null && locSchedule != null) {
+                binding.tvHistoryHours.text = TimeUtils.formatHours(locSchedule.totalHoursOff)
                 binding.historyTimelineBar.visibility = View.VISIBLE
                 binding.historyTimelineBar.setData(
-                    intervals = mySchedule.intervals,
+                    intervals = locSchedule.intervals,
                     currentMinute = if (TimeUtils.isToday(day.date)) TimeUtils.currentMinuteOfDay() else null,
                     showHourLabels = false,
                     animateReveal = shouldAnimate
                 )
-                binding.tvHistoryIntervals.text = if (mySchedule.intervals.isEmpty()) {
-                    ctx.getString(R.string.no_outages_day)
+                binding.tvHistoryIntervals.text = if (locSchedule.intervals.isEmpty()) {
+                    "${group.displayTitleWithQueue}: ${ctx.getString(R.string.no_outages_day)}"
                 } else {
-                    "${ctx.getString(R.string.queue_format, mySchedule.queueId)}: " +
-                        mySchedule.intervals.joinToString("  •  ") { "${it.start}–${it.end}" }
+                    "${group.displayTitleWithQueue}: " +
+                        locSchedule.intervals.joinToString("  •  ") { "${it.start}–${it.end}" }
                 }
             } else {
                 val avgHours = if (day.queues.isNotEmpty()) {

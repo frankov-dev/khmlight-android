@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.os.bundleOf
 import com.frankov_dev.khmlight.R
@@ -24,14 +25,24 @@ class OperationalMessageBottomSheet : BottomSheetDialogFragment() {
         super.onViewCreated(view, savedInstanceState)
         val dateLabel = arguments?.getString(ARG_DATE_LABEL).orEmpty()
         val message = arguments?.getString(ARG_MESSAGE).orEmpty()
+        val prevMessages = arguments?.getStringArrayList(ARG_PREV_MESSAGES).orEmpty()
 
         val tvDate = view.findViewById<TextView>(R.id.tvMessageDate)
         val tvBody = view.findViewById<TextView>(R.id.tvMessageBody)
+        val prevSection = view.findViewById<LinearLayout>(R.id.llPreviousMessagesSection)
+        val tvPrevBody = view.findViewById<TextView>(R.id.tvPreviousMessagesBody)
         val btnOk = view.findViewById<MaterialButton>(R.id.btnMessageOk)
 
         tvDate.text = dateLabel
         tvDate.visibility = if (dateLabel.isNotBlank()) View.VISIBLE else View.GONE
         tvBody.text = message
+
+        if (prevMessages.isNotEmpty()) {
+            prevSection.visibility = View.VISIBLE
+            tvPrevBody.text = prevMessages.joinToString("\n\n") { "• $it" }
+        } else {
+            prevSection.visibility = View.GONE
+        }
 
         btnOk.setOnClickListener {
             dismiss()
@@ -41,12 +52,18 @@ class OperationalMessageBottomSheet : BottomSheetDialogFragment() {
     companion object {
         private const val ARG_DATE_LABEL = "date_label"
         private const val ARG_MESSAGE = "message"
+        private const val ARG_PREV_MESSAGES = "prev_messages"
 
-        fun newInstance(dateLabel: String, message: String): OperationalMessageBottomSheet {
+        fun newInstance(
+            dateLabel: String,
+            message: String,
+            previousMessages: List<String> = emptyList()
+        ): OperationalMessageBottomSheet {
             return OperationalMessageBottomSheet().apply {
                 arguments = bundleOf(
                     ARG_DATE_LABEL to dateLabel,
-                    ARG_MESSAGE to message
+                    ARG_MESSAGE to message,
+                    ARG_PREV_MESSAGES to ArrayList(previousMessages)
                 )
             }
         }

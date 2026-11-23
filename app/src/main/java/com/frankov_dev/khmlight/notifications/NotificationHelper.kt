@@ -15,6 +15,7 @@ import com.frankov_dev.khmlight.MainActivity
 import com.frankov_dev.khmlight.R
 import com.frankov_dev.khmlight.data.OutageInterval
 import com.frankov_dev.khmlight.data.PrefsManager
+import com.frankov_dev.khmlight.data.SavedLocationCodec
 import com.frankov_dev.khmlight.util.TimeUtils
 
 object NotificationHelper {
@@ -23,10 +24,10 @@ object NotificationHelper {
     const val CHANNEL_POWER_ON = "khmlight_power_on"
     const val CHANNEL_SCHEDULE = "khmlight_schedule_changes"
 
-    private const val ID_OUTAGE = 2001
-    private const val ID_POWER_ON = 2002
-    private const val ID_SCHEDULE_TODAY = 2003
-    private const val ID_SCHEDULE_TOMORROW = 2004
+    private const val ID_OUTAGE_BASE = 2100
+    private const val ID_POWER_ON_BASE = 2300
+    private const val ID_SCHEDULE_TODAY_BASE = 2500
+    private const val ID_SCHEDULE_TOMORROW_BASE = 2700
 
     fun ensureChannels(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -73,57 +74,78 @@ object NotificationHelper {
     fun showOutageWarning(
         context: Context,
         queueId: String,
+        locationLabel: String? = null,
         leadMinutes: Int,
         startTime: String,
         endTime: String
     ) {
         if (!canPostNow(context)) return
+        val label = locationLabel ?: resolveQuotedLabel(context, queueId)
         val title = "Відключення через ${TimeUtils.formatDurationMinutes(leadMinutes)}"
-        val body = "Черга $queueId • світло вимкнуть о $startTime (до $endTime)"
-        post(context, CHANNEL_OUTAGE, ID_OUTAGE, title, body, NotificationCompat.PRIORITY_HIGH)
+        val body = "$label • світло вимкнуть о $startTime (до $endTime)"
+        post(context, CHANNEL_OUTAGE, idFor(ID_OUTAGE_BASE, queueId), title, body, NotificationCompat.PRIORITY_HIGH)
     }
 
     fun showPowerOnWarning(
         context: Context,
         queueId: String,
+        locationLabel: String? = null,
         leadMinutes: Int,
         endTime: String
     ) {
         if (!canPostNow(context)) return
+        val label = locationLabel ?: resolveQuotedLabel(context, queueId)
         val title = "Світло увімкнуть через ${TimeUtils.formatDurationMinutes(leadMinutes)}"
-        val body = "Черга $queueId • заживлення о $endTime"
-        post(context, CHANNEL_POWER_ON, ID_POWER_ON, title, body, NotificationCompat.PRIORITY_DEFAULT)
+        val body = "$label • заживлення о $endTime"
+        post(context, CHANNEL_POWER_ON, idFor(ID_POWER_ON_BASE, queueId), title, body, NotificationCompat.PRIORITY_DEFAULT)
     }
 
     fun showTodayScheduleChanged(
         context: Context,
         queueId: String,
+        locationLabel: String? = null,
         intervals: List<OutageInterval>,
-        totalHoursOff: Double
+        totalHoursOff: Double,
+        deltaLabel: String? = null
     ) {
         if (!canPostNow(context)) return
-        val title = "Змінився графік на сьогодні (черга $queueId)"
-        val summary = formatIntervalsSummary(intervals, totalHoursOff)
-        post(context, CHANNEL_SCHEDULE, ID_SCHEDULE_TODAY, title, summary, NotificationCompat.PRIORITY_DEFAULT)
+        val label = locationLabel ?: resolveQuotedLabel(context, queueId)
+        val title = "Змінився графік на сьогодні"
+        val summary = "$label • ${formatIntervalsSummary(intervals, totalHoursOff, deltaLabel)}"
+        post(context, CHANNEL_SCHEDULE, idFor(ID_SCHEDULE_TODAY_BASE, queueId), title, summary, NotificationCompat.PRIORITY_DEFAULT)
     }
 
     fun showTomorrowSchedulePublished(
         context: Context,
         queueId: String,
+        locationLabel: String? = null,
         intervals: List<OutageInterval>,
         totalHoursOff: Double
     ) {
         if (!canPostNow(context)) return
-        val title = "Опубліковано графік на завтра (черга $queueId)"
-        val summary = formatIntervalsSummary(intervals, totalHoursOff)
-        post(context, CHANNEL_SCHEDULE, ID_SCHEDULE_TOMORROW, title, summary, NotificationCompat.PRIORITY_DEFAULT)
+        val label = locationLabel ?: resolveQuotedLabel(context, queueId)
+        val title = "Опубліковано графік на завтра"
+        val summary = "$label • ${formatIntervalsSummary(intervals, totalHoursOff)}"
+        post(context, CHANNEL_SCHEDULE, idFor(ID_SCHEDULE_TOMORROW_BASE, queueId), title, summary, NotificationCompat.PRIORITY_DEFAULT)
     }
 
-    private fun formatIntervalsSummary(intervals: List<OutageInterval>, totalHoursOff: Double): String {
+    private fun resolveQuotedLabel(context: Context, queueId: String): String {
+        val enabledLocs = PrefsManager(context).getSavedLocations().filter { it.notifyEnabled }
+        return SavedLocationCodec.formatQuotedLabel(enabledLocs, queueId)
+    }
+
+    private fun idFor(base: Int, queueId: String): Int = base + (queueId.hashCode() and 0x7F)
+
+    private fun formatIntervalsSummary(
+        intervals: List<OutageInterval>,
+        totalHoursOff: Double,
+        deltaLabel: String? = null
+    ): String {
         if (intervals.isEmpty()) return "Відключень не заплановано"
         val hours = TimeUtils.formatHours(totalHoursOff)
+        val deltaSuffix = if (!deltaLabel.isNullOrBlank()) " ($deltaLabel)" else ""
         val joined = intervals.joinToString(" • ") { "${it.start}–${it.end}" }
-        return "$hours: $joined"
+        return "$hours$deltaSuffix: $joined"
     }
 
     private fun canPostNow(context: Context): Boolean {

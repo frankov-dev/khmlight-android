@@ -154,4 +154,27 @@ object M3Motion {
             start()
         }
     }
+
+    /**
+     * Smoothly morphs any View's solid background color (e.g. top hero section inside a monolithic card).
+     */
+    fun animateViewBackgroundColor(
+        view: View,
+        fromColor: Int?,
+        toColor: Int,
+        durationMs: Long = 260L
+    ) {
+        if (fromColor == null || fromColor == toColor) {
+            view.setBackgroundColor(toColor)
+            return
+        }
+        ValueAnimator.ofObject(ArgbEvaluator(), fromColor, toColor).apply {
+            duration = durationMs
+            interpolator = STANDARD
+            addUpdateListener { anim ->
+                view.setBackgroundColor(anim.animatedValue as Int)
+            }
+            start()
+        }
+    }
 }

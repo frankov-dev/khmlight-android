@@ -1,9 +1,12 @@
 package com.frankov_dev.khmlight
 
 import com.frankov_dev.khmlight.data.DaySchedule
+import com.frankov_dev.khmlight.data.LocationIcon
 import com.frankov_dev.khmlight.data.OutageInterval
 import com.frankov_dev.khmlight.data.OutagesFeed
 import com.frankov_dev.khmlight.data.QueueSchedule
+import com.frankov_dev.khmlight.data.SavedLocation
+import com.frankov_dev.khmlight.data.SavedLocationCodec
 import com.frankov_dev.khmlight.notifications.ScheduleChangeDetector
 import com.frankov_dev.khmlight.notifications.ScheduleChangeEvent
 import org.junit.Assert.assertEquals
@@ -169,5 +172,54 @@ class ScheduleChangeDetectorTest {
         assertFalse(ScheduleChangeDetector.isInQuietHours(7))
         assertFalse(ScheduleChangeDetector.isInQuietHours(15))
         assertFalse(ScheduleChangeDetector.isInQuietHours(22))
+    }
+
+    @Test
+    fun multiLocationAlarmsRespectNotifyFlagAndGroupSimultaneousQueues() {
+        val feed = feedOf(
+            "2026-11-22" to mapOf(
+                "1.1" to listOf(OutageInterval("13:00", "16:00")),
+                "2.1" to listOf(OutageInterval("14:00", "17:00")),
+                "4.2" to listOf(OutageInterval("14:00", "18:00"))
+            )
+        )
+        val locations = listOf(
+            SavedLocation(id = "1", name = "Дача", queueId = "1.1", icon = LocationIcon.COTTAGE, notifyEnabled = false),
+            SavedLocation(id = "2", name = "Дім", queueId = "2.1", icon = LocationIcon.HOME, notifyEnabled = true),
+            SavedLocation(id = "3", name = "Робота", queueId = "4.2", icon = LocationIcon.WORK, notifyEnabled = true)
+        )
+        val now = ZonedDateTime.of(today, LocalTime.of(12, 0), kyiv)
+        val multi = ScheduleChangeDetector.computeNextAlarmsForLocations(
+            feed = feed,
+            locations = locations,
+            leadMinutes = 15,
+            now = now
+        )
+
+        // 1.1 has notifyEnabled = false, so earliest outage warnings are 2.1 and 4.2 at 13:45
+        assertEquals(2, multi.nextOutageEvents.size)
+        assertEquals(setOf("2.1", "4.2"), multi.nextOutageEvents.map { it.queueId }.toSet())
+        assertEquals(
+            ZonedDateTime.of(today, LocalTime.of(13, 45), kyiv).toInstant().toEpochMilli(),
+            multi.nextOutageTriggerMs
+        )
+
+        // Widget transition still tracks all saved locations including 1.1 at 13:00
+        assertEquals(
+            ZonedDateTime.of(today, LocalTime.of(13, 0), kyiv).toInstant().toEpochMilli() + 5_000L,
+            multi.nextWidgetTransitionEpochMs
+        )
+    }
+
+    @Test
+    fun formatQuotedLabelCombinesMultipleLocationsOnSameQueue() {
+        val locations = listOf(
+            SavedLocation(id = "1", name = "Дім", queueId = "2.1", icon = LocationIcon.HOME),
+            SavedLocation(id = "2", name = "Гараж", queueId = "2.1", icon = LocationIcon.GARAGE),
+            SavedLocation(id = "3", name = "Робота", queueId = "4.2", icon = LocationIcon.WORK)
+        )
+        assertEquals("«Дім», «Гараж» (черга 2.1)", SavedLocationCodec.formatQuotedLabel(locations, "2.1"))
+        assertEquals("«Робота» (черга 4.2)", SavedLocationCodec.formatQuotedLabel(locations, "4.2"))
+        assertEquals("Черга 5.1", SavedLocationCodec.formatQuotedLabel(locations, "5.1"))
     }
 }

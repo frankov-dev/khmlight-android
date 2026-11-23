@@ -1,36 +1,42 @@
 package com.frankov_dev.khmlight.ui.adapters
 
+import android.view.HapticFeedbackConstants
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import androidx.core.content.ContextCompat
-import androidx.core.graphics.ColorUtils
-import androidx.core.widget.NestedScrollView
+import androidx.recyclerview.widget.ItemTouchHelper
+import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.frankov_dev.khmlight.R
 import com.frankov_dev.khmlight.data.DaySchedule
+import com.frankov_dev.khmlight.data.LocationQueueGroup
 import com.frankov_dev.khmlight.data.OutagesFeed
-import com.frankov_dev.khmlight.databinding.ItemIntervalRowBinding
+import com.frankov_dev.khmlight.data.QueueRevisionDiff
+import com.frankov_dev.khmlight.data.SavedLocation
 import com.frankov_dev.khmlight.databinding.PageMyQueueDayBinding
 import com.frankov_dev.khmlight.ui.M3Motion
 import com.frankov_dev.khmlight.util.TimeUtils
-import com.google.android.material.color.MaterialColors
 
-class MyQueuePagerAdapter : RecyclerView.Adapter<MyQueuePagerAdapter.PageViewHolder>() {
+class MyQueuePagerAdapter(
+    private val onEditLocation: (SavedLocation) -> Unit,
+    private val onEditGroup: (LocationQueueGroup) -> Unit,
+    private val onShowRevisions: (String, QueueRevisionDiff) -> Unit,
+    private val onLocationsReordered: (List<SavedLocation>) -> Unit,
+    private val onDraggingChanged: (Boolean) -> Unit
+) : RecyclerView.Adapter<MyQueuePagerAdapter.PageViewHolder>() {
 
     private var feed: OutagesFeed? = null
-    private var selectedQueue: String? = null
-    private val scrollViews = arrayOfNulls<NestedScrollView>(2)
+    private var savedLocations: List<SavedLocation> = emptyList()
+    private val recyclerViews = arrayOfNulls<RecyclerView>(2)
 
-    fun submitData(feed: OutagesFeed?, selectedQueue: String?) {
+    fun submitData(feed: OutagesFeed?, locations: List<SavedLocation>) {
         this.feed = feed
-        this.selectedQueue = selectedQueue
+        this.savedLocations = locations
         notifyItemRangeChanged(0, itemCount, PAYLOAD_LIVE_UPDATE)
     }
 
     fun canScrollUp(position: Int): Boolean {
-        val sv = scrollViews.getOrNull(position) ?: return false
-        return sv.canScrollVertically(-1)
+        val rv = recyclerViews.getOrNull(position) ?: return false
+        return rv.visibility == View.VISIBLE && rv.canScrollVertically(-1)
     }
 
     override fun getItemCount(): Int = 2
@@ -45,7 +51,7 @@ class MyQueuePagerAdapter : RecyclerView.Adapter<MyQueuePagerAdapter.PageViewHol
     }
 
     override fun onBindViewHolder(holder: PageViewHolder, position: Int) {
-        scrollViews[position] = holder.binding.pageScrollView
+        recyclerViews[position] = holder.binding.rvLocationBlocks
         holder.bind(position)
     }
 
@@ -54,7 +60,7 @@ class MyQueuePagerAdapter : RecyclerView.Adapter<MyQueuePagerAdapter.PageViewHol
         position: Int,
         payloads: MutableList<Any>
     ) {
-        scrollViews[position] = holder.binding.pageScrollView
+        recyclerViews[position] = holder.binding.rvLocationBlocks
         holder.bind(position)
     }
 
@@ -62,14 +68,74 @@ class MyQueuePagerAdapter : RecyclerView.Adapter<MyQueuePagerAdapter.PageViewHol
         val binding: PageMyQueueDayBinding
     ) : RecyclerView.ViewHolder(binding.root) {
 
-        private var lastHeroBgColor: Int? = null
-        private var lastIntervalsSignature: String? = null
-        private val rowBindings = mutableListOf<ItemIntervalRowBinding>()
+        private lateinit var itemTouchHelper: ItemTouchHelper
+        private val blocksAdapter = LocationBlocksAdapter(
+            onEditLocation = onEditLocation,
+            onEditGroup = onEditGroup,
+            onShowRevisions = onShowRevisions,
+            onStartDrag = { vh -> itemTouchHelper.startDrag(vh) },
+            onOrderCommitted = onLocationsReordered
+        )
+
+        init {
+            binding.rvLocationBlocks.layoutManager = LinearLayoutManager(binding.root.context)
+            binding.rvLocationBlocks.adapter = blocksAdapter
+
+            val callback = object : ItemTouchHelper.SimpleCallback(
+                ItemTouchHelper.UP or ItemTouchHelper.DOWN,
+                0
+            ) {
+                override fun isLongPressDragEnabled(): Boolean = false
+
+                override fun onMove(
+                    recyclerView: RecyclerView,
+                    viewHolder: RecyclerView.ViewHolder,
+                    target: RecyclerView.ViewHolder
+                ): Boolean {
+                    return blocksAdapter.onItemMove(
+                        viewHolder.bindingAdapterPosition,
+                        target.bindingAdapterPosition
+                    )
+                }
+
+                override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) = Unit
+
+                override fun onSelectedChanged(viewHolder: RecyclerView.ViewHolder?, actionState: Int) {
+                    super.onSelectedChanged(viewHolder, actionState)
+                    if (actionState == ItemTouchHelper.ACTION_STATE_DRAG && viewHolder != null) {
+                        blocksAdapter.onDragStateChanged(true)
+                        onDraggingChanged(true)
+                        viewHolder.itemView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                        viewHolder.itemView.animate()
+                            .scaleX(1.02f)
+                            .scaleY(1.02f)
+                            .alpha(0.95f)
+                            .setDuration(140L)
+                            .start()
+                    }
+                }
+
+                override fun clearView(
+                    recyclerView: RecyclerView,
+                    viewHolder: RecyclerView.ViewHolder
+                ) {
+                    super.clearView(recyclerView, viewHolder)
+                    viewHolder.itemView.animate()
+                        .scaleX(1f)
+                        .scaleY(1f)
+                        .alpha(1f)
+                        .setDuration(160L)
+                        .start()
+                    blocksAdapter.onDragStateChanged(false)
+                    onDraggingChanged(false)
+                }
+            }
+            itemTouchHelper = ItemTouchHelper(callback)
+            itemTouchHelper.attachToRecyclerView(binding.rvLocationBlocks)
+        }
 
         fun bind(position: Int) {
-            val ctx = binding.root.context
             val currentFeed = feed ?: return
-            val myQueue = selectedQueue ?: return
 
             val todayStr = TimeUtils.todayDateString()
             val tomorrowStr = TimeUtils.tomorrowDateString()
@@ -85,221 +151,13 @@ class MyQueuePagerAdapter : RecyclerView.Adapter<MyQueuePagerAdapter.PageViewHol
                     binding.myQueueTomorrowEmptyCard.visibility = View.VISIBLE
                     M3Motion.animateCascadeItem(binding.myQueueTomorrowEmptyCard, 0)
                 }
-                binding.myQueueScheduleGroup.visibility = View.GONE
-                lastIntervalsSignature = null
+                binding.rvLocationBlocks.visibility = View.GONE
                 return
             }
 
             binding.myQueueTomorrowEmptyCard.visibility = View.GONE
-            binding.myQueueScheduleGroup.visibility = View.VISIBLE
-
-            val dateKey = daySchedule.date
-            val queueSchedule = daySchedule.queues[myQueue]
-            val intervals = queueSchedule?.intervals.orEmpty()
-            val totalHours = queueSchedule?.totalHoursOff ?: 0.0
-            val isToday = TimeUtils.isToday(dateKey)
-            val nowMin = TimeUtils.currentMinuteOfDay()
-
-            val signature = "$position|$myQueue|$dateKey|" +
-                intervals.joinToString(",") { "${it.start}-${it.end}" }
-            val scheduleChanged = signature != lastIntervalsSignature
-            lastIntervalsSignature = signature
-
-            binding.tvTotalHoursBadge.text =
-                ctx.getString(R.string.total_hours_off, TimeUtils.formatHours(totalHours))
-            binding.tvIntervalsCountBadge.text = formatIntervalsCount(intervals.size)
-
-            val heroBgColor: Int
-            val heroFgColor: Int
-            if (isToday) {
-                val liveStatus = TimeUtils.computeLiveStatus(intervals, nowMin)
-                if (liveStatus.isPowerOff) {
-                    heroBgColor = MaterialColors.harmonizeWithPrimary(
-                        ctx,
-                        ContextCompat.getColor(ctx, R.color.status_power_off_bg)
-                    )
-                    heroFgColor = MaterialColors.harmonizeWithPrimary(
-                        ctx,
-                        ContextCompat.getColor(ctx, R.color.status_power_off_fg)
-                    )
-                    binding.tvStatusTitle.text = ctx.getString(R.string.status_power_off)
-                    val mins = liveStatus.minutesUntilChange ?: 0
-                    val endStr = liveStatus.nextChangeTime ?: ""
-                    binding.tvStatusSubtitle.text = ctx.getString(
-                        R.string.until_power_on,
-                        TimeUtils.formatDurationMinutes(mins),
-                        endStr
-                    )
-                } else {
-                    heroBgColor = MaterialColors.getColor(
-                        binding.statusHeroCard,
-                        com.google.android.material.R.attr.colorPrimaryContainer
-                    )
-                    heroFgColor = MaterialColors.getColor(
-                        binding.statusHeroCard,
-                        com.google.android.material.R.attr.colorOnPrimaryContainer
-                    )
-                    binding.tvStatusTitle.text = ctx.getString(R.string.status_power_on)
-                    binding.tvStatusSubtitle.text =
-                        if (liveStatus.nextChangeTime != null && liveStatus.minutesUntilChange != null) {
-                            ctx.getString(
-                                R.string.until_outage,
-                                TimeUtils.formatDurationMinutes(liveStatus.minutesUntilChange),
-                                liveStatus.nextChangeTime
-                            )
-                        } else {
-                            ctx.getString(R.string.no_more_outages_today)
-                        }
-                }
-            } else {
-                heroBgColor = MaterialColors.getColor(
-                    binding.statusHeroCard,
-                    com.google.android.material.R.attr.colorSecondaryContainer
-                )
-                heroFgColor = MaterialColors.getColor(
-                    binding.statusHeroCard,
-                    com.google.android.material.R.attr.colorOnSecondaryContainer
-                )
-                binding.tvStatusTitle.text = TimeUtils.formatDateHeading(dateKey)
-                binding.tvStatusSubtitle.text = if (intervals.isEmpty()) {
-                    ctx.getString(R.string.no_outages_day)
-                } else {
-                    ctx.getString(R.string.status_scheduled_day)
-                }
-            }
-
-            M3Motion.animateCardBackgroundColor(binding.statusHeroCard, lastHeroBgColor, heroBgColor)
-            lastHeroBgColor = heroBgColor
-            binding.tvStatusTitle.setTextColor(heroFgColor)
-            binding.tvStatusSubtitle.setTextColor(heroFgColor)
-            binding.tvTotalHoursBadge.setTextColor(heroFgColor)
-
-            binding.myQueueTimelineBar.setData(
-                intervals = intervals,
-                currentMinute = if (isToday) nowMin else null,
-                showHourLabels = true,
-                accentColor = heroFgColor,
-                trackBaseColor = heroBgColor,
-                animateReveal = scheduleChanged
-            )
-
-            if (scheduleChanged) {
-                binding.intervalsContainer.removeAllViews()
-                rowBindings.clear()
-                val inflater = LayoutInflater.from(ctx)
-                if (intervals.isEmpty()) {
-                    val rowBinding =
-                        ItemIntervalRowBinding.inflate(inflater, binding.intervalsContainer, false)
-                    rowBinding.intervalDivider.visibility = View.GONE
-                    rowBinding.intervalAccentBar.visibility = View.GONE
-                    rowBinding.cardIntervalStatusPill.visibility = View.GONE
-                    rowBinding.tvIntervalTime.text = ctx.getString(R.string.no_outages_day)
-                    rowBinding.tvIntervalDuration.visibility = View.GONE
-                    binding.intervalsContainer.addView(rowBinding.root)
-                    M3Motion.animateCascadeItem(rowBinding.root, 0, baseDelayMs = 45L)
-                } else {
-                    intervals.forEachIndexed { index, interval ->
-                        val rowBinding =
-                            ItemIntervalRowBinding.inflate(inflater, binding.intervalsContainer, false)
-                        rowBinding.intervalDivider.visibility =
-                            if (index == 0) View.GONE else View.VISIBLE
-                        rowBinding.tvIntervalTime.text = "${interval.start} – ${interval.end}"
-                        M3Motion.attachPressSpring(rowBinding.intervalContent, pressedScale = 0.985f)
-                        binding.intervalsContainer.addView(rowBinding.root)
-                        rowBindings.add(rowBinding)
-                        M3Motion.animateCascadeItem(rowBinding.root, index, baseDelayMs = 45L)
-                    }
-                }
-            }
-
-            // Palette colors for interval rows (matching the uploaded Material 3 card design)
-            val offFg = MaterialColors.harmonizeWithPrimary(
-                ctx,
-                ContextCompat.getColor(ctx, R.color.status_power_off_fg)
-            )
-            val offBg = MaterialColors.harmonizeWithPrimary(
-                ctx,
-                ContextCompat.getColor(ctx, R.color.status_power_off_bg)
-            )
-            val primary = MaterialColors.getColor(
-                binding.root,
-                androidx.appcompat.R.attr.colorPrimary
-            )
-            val primaryContainer = MaterialColors.getColor(
-                binding.root,
-                com.google.android.material.R.attr.colorPrimaryContainer
-            )
-            val surfaceHigh = MaterialColors.getColor(
-                binding.root,
-                com.google.android.material.R.attr.colorSurfaceContainerHigh
-            )
-            val onSurfaceVariant = MaterialColors.getColor(
-                binding.root,
-                com.google.android.material.R.attr.colorOnSurfaceVariant
-            )
-            val outlineVariant = MaterialColors.getColor(
-                binding.root,
-                com.google.android.material.R.attr.colorOutlineVariant
-            )
-            val upcomingBarColor = ColorUtils.blendARGB(outlineVariant, onSurfaceVariant, 0.45f)
-            val upcomingPillBg = ColorUtils.blendARGB(surfaceHigh, primaryContainer, 0.42f)
-            val upcomingPillText = ColorUtils.blendARGB(onSurfaceVariant, primary, 0.72f)
-
-            // Update interval status badges, vertical accent bars, and subtitles
-            intervals.forEachIndexed { index, interval ->
-                val rowBinding = rowBindings.getOrNull(index) ?: return@forEachIndexed
-                val durationLabel = TimeUtils.formatDurationMinutes(interval.durationMinutes)
-
-                when {
-                    isToday && interval.containsMinute(nowMin) -> {
-                        rowBinding.intervalContent.alpha = 1f
-                        rowBinding.intervalAccentBar.setCardBackgroundColor(offFg)
-                        rowBinding.tvIntervalDuration.text =
-                            ctx.getString(R.string.interval_sub_now, durationLabel)
-
-                        rowBinding.tvIntervalStatus.text = ctx.getString(R.string.interval_now)
-                        rowBinding.tvIntervalStatus.setTextColor(offFg)
-                        rowBinding.cardIntervalStatusPill.setCardBackgroundColor(offBg)
-                        rowBinding.cardIntervalStatusPill.strokeColor =
-                            ColorUtils.setAlphaComponent(offFg, 95)
-                    }
-                    isToday && interval.endMinutes <= nowMin -> {
-                        rowBinding.intervalContent.alpha = 0.58f
-                        rowBinding.intervalAccentBar.setCardBackgroundColor(outlineVariant)
-                        rowBinding.tvIntervalDuration.text =
-                            ctx.getString(R.string.interval_sub_done, durationLabel)
-
-                        rowBinding.tvIntervalStatus.text = ctx.getString(R.string.interval_done)
-                        rowBinding.tvIntervalStatus.setTextColor(onSurfaceVariant)
-                        rowBinding.cardIntervalStatusPill.setCardBackgroundColor(surfaceHigh)
-                        rowBinding.cardIntervalStatusPill.strokeColor =
-                            ColorUtils.setAlphaComponent(outlineVariant, 90)
-                    }
-                    else -> {
-                        rowBinding.intervalContent.alpha = 1f
-                        rowBinding.intervalAccentBar.setCardBackgroundColor(upcomingBarColor)
-                        rowBinding.tvIntervalDuration.text =
-                            ctx.getString(R.string.interval_sub_upcoming, durationLabel)
-
-                        rowBinding.tvIntervalStatus.text = ctx.getString(R.string.interval_upcoming)
-                        rowBinding.tvIntervalStatus.setTextColor(upcomingPillText)
-                        rowBinding.cardIntervalStatusPill.setCardBackgroundColor(upcomingPillBg)
-                        rowBinding.cardIntervalStatusPill.strokeColor =
-                            ColorUtils.setAlphaComponent(upcomingPillText, 70)
-                    }
-                }
-            }
-        }
-
-        private fun formatIntervalsCount(count: Int): String {
-            if (count <= 0) return "0 інтервалів"
-            val mod10 = count % 10
-            val mod100 = count % 100
-            return when {
-                mod10 == 1 && mod100 != 11 -> "$count інтервал"
-                mod10 in 2..4 && mod100 !in 12..14 -> "$count інтервали"
-                else -> "$count інтервалів"
-            }
+            binding.rvLocationBlocks.visibility = View.VISIBLE
+            blocksAdapter.submitData(savedLocations, daySchedule)
         }
     }
 

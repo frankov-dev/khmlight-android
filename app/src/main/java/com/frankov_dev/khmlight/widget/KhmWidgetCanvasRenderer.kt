@@ -6,8 +6,11 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
+import androidx.annotation.DrawableRes
+import androidx.core.content.ContextCompat
 import androidx.core.content.res.ResourcesCompat
 import androidx.core.graphics.ColorUtils
+import androidx.core.graphics.drawable.DrawableCompat
 import com.frankov_dev.khmlight.R
 
 object KhmWidgetCanvasRenderer {
@@ -44,10 +47,10 @@ object KhmWidgetCanvasRenderer {
         val density = context.resources.displayMetrics.density
 
         return when (kind) {
-            WidgetKind.W1X1 -> render1x1(data, config, palette, fonts, density, widthDp, heightDp)
-            WidgetKind.W1X4 -> render1x4(data, config, palette, fonts, density, widthDp, heightDp)
-            WidgetKind.W2X2 -> render2x2(data, config, palette, fonts, density, widthDp, heightDp)
-            WidgetKind.W4X2 -> render4x2(data, config, palette, fonts, density, widthDp, heightDp)
+            WidgetKind.W1X1 -> render1x1(context, data, config, palette, fonts, density, widthDp, heightDp)
+            WidgetKind.W1X4 -> render1x4(context, data, config, palette, fonts, density, widthDp, heightDp)
+            WidgetKind.W2X2 -> render2x2(context, data, config, palette, fonts, density, widthDp, heightDp)
+            WidgetKind.W4X2 -> render4x2(context, data, config, palette, fonts, density, widthDp, heightDp)
         }
     }
 
@@ -55,6 +58,7 @@ object KhmWidgetCanvasRenderer {
      * 1x4 Horizontal Signal Wave Widget — exact match to the reference mockup photo.
      */
     private fun render1x4(
+        context: Context,
         data: ResolvedWidgetData,
         config: WidgetInstanceConfig,
         palette: ResolvedWidgetPalette,
@@ -82,7 +86,7 @@ object KhmWidgetCanvasRenderer {
         val padX = 12f * s
         val padY = 9f * s
 
-        // 2. Left Group Indicator squircle ("2.1")
+        // 2. Left Location Icon squircle (replaces queue number, tinted with chosen palette accent)
         val groupW = 48f * s
         val groupH = (h - padY * 2.2f).coerceIn(44f * s, 56f * s)
         val groupLeft = padX
@@ -91,14 +95,15 @@ object KhmWidgetCanvasRenderer {
         fillPaint.color = palette.innerSurfaceBg
         canvas.drawRoundRect(groupRect, 16f * s, 16f * s, fillPaint)
 
-        val groupTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            typeface = fonts.bold
-            color = palette.fgPrimary
-            textAlign = Paint.Align.CENTER
-            textSize = 19.5f * s
-            fontFeatureSettings = "tnum"
-        }
-        drawCenteredText(canvas, data.queueBadge, groupRect.centerX(), groupRect.centerY(), groupTextPaint)
+        drawTintedVectorIcon(
+            context = context,
+            canvas = canvas,
+            iconRes = data.iconRes,
+            cx = groupRect.centerX(),
+            cy = groupRect.centerY(),
+            sizePx = 25f * s,
+            tintColor = palette.iconColor
+        )
 
         // 3. Subtle vertical hairline divider (as seen in reference photo)
         val dividerX = groupRect.right + 10f * s
@@ -109,10 +114,10 @@ object KhmWidgetCanvasRenderer {
         }
         canvas.drawLine(dividerX, h * 0.22f, dividerX, h * 0.78f, dividerPaint)
 
-        // 4. KHMlight + "● Є світло"
+        // 4. Location Name (Queue) + "● Є світло"
         val statusLeft = dividerX + 10f * s
         val appNamePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            typeface = fonts.regular
+            typeface = fonts.medium
             color = palette.fgMuted
             textSize = 11.2f * s
         }
@@ -126,19 +131,21 @@ object KhmWidgetCanvasRenderer {
         val dotGap = 5.5f * s
         val dotColor = resolveDotColor(data.mood, palette)
         val rightGap = if (w < 335f * s) 10f * s else 12f * s
-        val maxStatusTextW = maxOf(
-            62f * s,
-            (w - padX - statusLeft - rightGap - 128f * s) - (dotRadius * 2f + dotGap)
+        val maxLeftColW = maxOf(
+            76f * s,
+            w - padX - statusLeft - rightGap - 128f * s
         )
+        val maxStatusTextW = maxOf(62f * s, maxLeftColW - (dotRadius * 2f + dotGap))
         statusPaint.textSize = fitTextSize(statusPaint, data.statusTitle, maxStatusTextW, 14.8f * s, 11.2f * s)
         val statusW = dotRadius * 2f + dotGap + statusPaint.measureText(data.statusTitle)
-        val appNameW = appNamePaint.measureText("KHMlight")
-        val leftColEnd = statusLeft + maxOf(statusW, appNameW)
+        val headerText = ellipsizeToWidth(data.headerLabel, appNamePaint, maxOf(statusW, maxLeftColW))
+        val headerW = appNamePaint.measureText(headerText)
+        val leftColEnd = statusLeft + maxOf(statusW, headerW)
 
         val topLineY = h * 0.37f
         val bottomLineY = h * 0.63f
         canvas.drawText(
-            "KHMlight",
+            headerText,
             statusLeft,
             topLineY - (appNamePaint.ascent() + appNamePaint.descent()) / 2f,
             appNamePaint
@@ -218,6 +225,7 @@ object KhmWidgetCanvasRenderer {
      * 1x1 Compact Tile — outer shape itself uses the selected Expressive Shape (B1-B5).
      */
     private fun render1x1(
+        context: Context,
         data: ResolvedWidgetData,
         config: WidgetInstanceConfig,
         palette: ResolvedWidgetPalette,
@@ -240,30 +248,37 @@ object KhmWidgetCanvasRenderer {
         fillPaint.color = palette.innerSurfaceBg
         canvas.drawPath(outerPath, fillPaint)
 
-        // Top: prominent status dot with soft halo + queue badge ("● 2.1")
+        // Top: glowing location icon (tinted with power ON/OFF status) + queue badge ("🏠 2.1")
         val queuePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             typeface = fonts.bold
             color = palette.fgPrimary
-            textSize = 12.5f * s
+            textSize = 12.8f * s
             fontFeatureSettings = "tnum"
         }
-        val dotR = 4.6f * s
-        val haloR = 7.4f * s
-        val dotGap = 5.5f * s
+        val iconSize = 15.5f * s
+        val haloR = 10.5f * s
+        val iconGap = 4.5f * s
         val qW = queuePaint.measureText(data.queueBadge)
-        val totalTopW = dotR * 2f + dotGap + qW
+        val totalTopW = iconSize + iconGap + qW
         val topStartX = (w - totalTopW) / 2f
         val topY = h * 0.27f
 
-        val dotColor = resolveDotColor(data.mood, palette)
-        val dotCx = topStartX + dotR
-        fillPaint.color = ColorUtils.setAlphaComponent(dotColor, 62)
-        canvas.drawCircle(dotCx, topY, haloR, fillPaint)
-        fillPaint.color = dotColor
-        canvas.drawCircle(dotCx, topY, dotR, fillPaint)
+        val statusGlowColor = resolveDotColor(data.mood, palette)
+        val iconCx = topStartX + iconSize / 2f
+        fillPaint.color = ColorUtils.setAlphaComponent(statusGlowColor, 56)
+        canvas.drawCircle(iconCx, topY, haloR, fillPaint)
+        drawTintedVectorIcon(
+            context = context,
+            canvas = canvas,
+            iconRes = data.iconRes,
+            cx = iconCx,
+            cy = topY,
+            sizePx = iconSize,
+            tintColor = statusGlowColor
+        )
         canvas.drawText(
             data.queueBadge,
-            topStartX + dotR * 2f + dotGap,
+            topStartX + iconSize + iconGap,
             topY - (queuePaint.ascent() + queuePaint.descent()) / 2f,
             queuePaint
         )
@@ -299,6 +314,7 @@ object KhmWidgetCanvasRenderer {
      * 2x2 Square / Vertical Expressive Card — adapts to square and tall Pixel Launcher 2x2 grids.
      */
     private fun render2x2(
+        context: Context,
         data: ResolvedWidgetData,
         config: WidgetInstanceConfig,
         palette: ResolvedWidgetPalette,
@@ -326,26 +342,27 @@ object KhmWidgetCanvasRenderer {
 
         val pad = lerp(13f, 10f, compact) * s
 
-        // 1. Header: Group squircle ("2.1") + KHMlight & "● Є світло"
+        // 1. Header: Location icon squircle + "Дім (2.1)" & "● Є світло"
         val groupSize = lerp(40f, 33f, compact) * s
         val groupRect = RectF(pad, pad, pad + groupSize, pad + groupSize)
         fillPaint.color = palette.innerSurfaceBg
         canvas.drawRoundRect(groupRect, lerp(13f, 11f, compact) * s, lerp(13f, 11f, compact) * s, fillPaint)
 
-        val groupPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            typeface = fonts.bold
-            color = palette.fgPrimary
-            textAlign = Paint.Align.CENTER
-            textSize = lerp(16f, 14f, compact) * s
-            fontFeatureSettings = "tnum"
-        }
-        drawCenteredText(canvas, data.queueBadge, groupRect.centerX(), groupRect.centerY(), groupPaint)
+        drawTintedVectorIcon(
+            context = context,
+            canvas = canvas,
+            iconRes = data.iconRes,
+            cx = groupRect.centerX(),
+            cy = groupRect.centerY(),
+            sizePx = groupSize * 0.56f,
+            tintColor = palette.iconColor
+        )
 
         val statusLeft = groupRect.right + lerp(10f, 8.5f, compact) * s
         val appPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            typeface = fonts.regular
+            typeface = fonts.medium
             color = palette.fgMuted
-            textSize = lerp(10f, 9.2f, compact) * s
+            textSize = lerp(10.2f, 9.4f, compact) * s
         }
         val dotR = lerp(3.8f, 3.4f, compact) * s
         val dotGap = 5f * s
@@ -361,8 +378,9 @@ object KhmWidgetCanvasRenderer {
             lerp(13.5f, 12.2f, compact) * s,
             9.5f * s
         )
+        val headerText = ellipsizeToWidth(data.headerLabel, appPaint, (w - pad) - statusLeft)
         canvas.drawText(
-            "KHMlight",
+            headerText,
             statusLeft,
             groupRect.top + groupSize * 0.34f - (appPaint.ascent() + appPaint.descent()) / 2f,
             appPaint
@@ -446,6 +464,7 @@ object KhmWidgetCanvasRenderer {
      * Middle (Full-width Signal Wave with hour markers), Bottom (Exact interval capsules + total hours).
      */
     private fun render4x2(
+        context: Context,
         data: ResolvedWidgetData,
         config: WidgetInstanceConfig,
         palette: ResolvedWidgetPalette,
@@ -471,20 +490,21 @@ object KhmWidgetCanvasRenderer {
 
         val pad = 14f * s
 
-        // 1. TOP TIER: Left (2.1 + divider + KHMlight / ● Є світло) | Right (Badge B1-B5 + 14:30)
+        // 1. TOP TIER: Left (Location Icon + divider + "Дім (2.1)" / ● Є світло) | Right (Badge B1-B5 + О 14:30)
         val topH = 46f * s
         val groupRect = RectF(pad, pad, pad + 46f * s, pad + topH)
         fillPaint.color = palette.innerSurfaceBg
         canvas.drawRoundRect(groupRect, 15f * s, 15f * s, fillPaint)
 
-        val groupPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            typeface = fonts.bold
-            color = palette.fgPrimary
-            textAlign = Paint.Align.CENTER
-            textSize = 18.5f * s
-            fontFeatureSettings = "tnum"
-        }
-        drawCenteredText(canvas, data.queueBadge, groupRect.centerX(), groupRect.centerY(), groupPaint)
+        drawTintedVectorIcon(
+            context = context,
+            canvas = canvas,
+            iconRes = data.iconRes,
+            cx = groupRect.centerX(),
+            cy = groupRect.centerY(),
+            sizePx = 25f * s,
+            tintColor = palette.iconColor
+        )
 
         val dividerX = groupRect.right + 9f * s
         val divPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -496,29 +516,30 @@ object KhmWidgetCanvasRenderer {
 
         val statusLeft = dividerX + 9f * s
         val appPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            typeface = fonts.regular
+            typeface = fonts.medium
             color = palette.fgMuted
-            textSize = 10.5f * s
+            textSize = 10.8f * s
         }
         val statusPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             typeface = fonts.bold
             color = palette.fgPrimary
             textSize = 14f * s
         }
+        val dotR = 4f * s
+        val dotY = pad + topH * 0.72f
+        val rightGap = 10f * s
+        val maxLeftW = maxOf(76f * s, w - pad - statusLeft - rightGap - 126f * s)
+        val maxStatusTextW = maxOf(64f * s, maxLeftW - (dotR * 2f + 5f * s))
+        statusPaint.textSize = fitTextSize(statusPaint, data.statusTitle, maxStatusTextW, 14f * s, 11.2f * s)
+        val statusRowW = dotR * 2f + 5f * s + statusPaint.measureText(data.statusTitle)
+        val headerText = ellipsizeToWidth(data.headerLabel, appPaint, maxOf(statusRowW, maxLeftW))
+
         canvas.drawText(
-            "KHMlight",
+            headerText,
             statusLeft,
             pad + topH * 0.34f - (appPaint.ascent() + appPaint.descent()) / 2f,
             appPaint
         )
-        val dotR = 4f * s
-        val dotY = pad + topH * 0.72f
-        val rightGap = 10f * s
-        val maxStatusTextW = maxOf(
-            64f * s,
-            (w - pad - statusLeft - rightGap - 126f * s) - (dotR * 2f + 5f * s)
-        )
-        statusPaint.textSize = fitTextSize(statusPaint, data.statusTitle, maxStatusTextW, 14f * s, 11.2f * s)
         fillPaint.color = resolveDotColor(data.mood, palette)
         canvas.drawCircle(statusLeft + dotR, dotY, dotR, fillPaint)
         canvas.drawText(
@@ -528,10 +549,7 @@ object KhmWidgetCanvasRenderer {
             statusPaint
         )
 
-        val leftEnd = statusLeft + maxOf(
-            dotR * 2f + 5f * s + statusPaint.measureText(data.statusTitle),
-            appPaint.measureText("KHMlight")
-        )
+        val leftEnd = statusLeft + maxOf(statusRowW, appPaint.measureText(headerText))
         val rightStart = leftEnd + rightGap
         val rightEnd = w - pad
         val rightW = (rightEnd - rightStart).coerceAtLeast(80f * s)
@@ -791,6 +809,35 @@ object KhmWidgetCanvasRenderer {
             data.mood == WidgetPowerMood.POWER_OFF -> palette.badgeToPowerOnBg
             else -> palette.badgeToOutageBg
         }
+    }
+
+    private fun drawTintedVectorIcon(
+        context: Context,
+        canvas: Canvas,
+        @DrawableRes iconRes: Int,
+        cx: Float,
+        cy: Float,
+        sizePx: Float,
+        tintColor: Int
+    ) {
+        val raw = ContextCompat.getDrawable(context, iconRes) ?: return
+        val drawable = DrawableCompat.wrap(raw.mutate())
+        DrawableCompat.setTint(drawable, tintColor)
+        val half = (sizePx / 2f).toInt().coerceAtLeast(1)
+        val left = cx.toInt() - half
+        val top = cy.toInt() - half
+        drawable.setBounds(left, top, left + half * 2, top + half * 2)
+        drawable.draw(canvas)
+    }
+
+    private fun ellipsizeToWidth(text: String, paint: Paint, maxWidth: Float): String {
+        if (maxWidth <= 0f || paint.measureText(text) <= maxWidth) return text
+        val ellipsis = "…"
+        var end = text.length
+        while (end > 1 && paint.measureText(text.substring(0, end) + ellipsis) > maxWidth) {
+            end--
+        }
+        return text.substring(0, end).trimEnd() + ellipsis
     }
 
     private fun lerp(a: Float, b: Float, t: Float): Float = a + (b - a) * t

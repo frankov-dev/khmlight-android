@@ -10,17 +10,22 @@ import java.util.concurrent.TimeUnit
 
 object BackgroundWorkScheduler {
 
-    private const val WORK_SYNC_SCHEDULE = "khmlight_sync_schedule_30m"
+    private const val LEGACY_WORK_SYNC_SCHEDULE = "khmlight_sync_schedule_30m"
+    private const val WORK_SYNC_SCHEDULE = "khmlight_sync_schedule_15m"
     private const val WORK_WIDGET_TICK = "khmlight_widget_tick_15m"
 
     fun ensureScheduled(context: Context) {
         val workManager = WorkManager.getInstance(context.applicationContext)
 
+        // Cancel legacy 30m periodic work if upgrading from v1.0
+        workManager.cancelUniqueWork(LEGACY_WORK_SYNC_SCHEDULE)
+
         val syncConstraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
 
-        val syncRequest = PeriodicWorkRequestBuilder<SyncScheduleWorker>(30, TimeUnit.MINUTES)
+        // Fast 15m polling backed by lightweight ~250B status.json + schedule_hash
+        val syncRequest = PeriodicWorkRequestBuilder<SyncScheduleWorker>(15, TimeUnit.MINUTES)
             .setConstraints(syncConstraints)
             .build()
 

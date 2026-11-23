@@ -7,21 +7,23 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.frankov_dev.khmlight.data.DaySchedule
 import com.frankov_dev.khmlight.data.OutagesFeed
+import com.frankov_dev.khmlight.data.QueueRevisionDiff
+import com.frankov_dev.khmlight.data.SavedLocation
 import com.frankov_dev.khmlight.databinding.PageAllQueuesDayBinding
 import com.frankov_dev.khmlight.util.TimeUtils
 
 class AllQueuesPagerAdapter(
-    private val onQueueClicked: (String) -> Unit
+    private val onRevisionBadgeClicked: (String, QueueRevisionDiff) -> Unit
 ) : RecyclerView.Adapter<AllQueuesPagerAdapter.PageViewHolder>() {
 
     private var feed: OutagesFeed? = null
-    private var selectedQueue: String? = null
+    private var savedLocations: List<SavedLocation> = emptyList()
     private val recyclerViews = arrayOfNulls<RecyclerView>(2)
 
-    fun submitData(feed: OutagesFeed?, selectedQueue: String?) {
+    fun submitData(feed: OutagesFeed?, savedLocations: List<SavedLocation>) {
         this.feed = feed
-        this.selectedQueue = selectedQueue
-        notifyDataSetChanged()
+        this.savedLocations = savedLocations
+        notifyItemRangeChanged(0, itemCount, PAYLOAD_UPDATE)
     }
 
     fun canScrollUp(position: Int): Boolean {
@@ -45,11 +47,20 @@ class AllQueuesPagerAdapter(
         holder.bind(position)
     }
 
+    override fun onBindViewHolder(
+        holder: PageViewHolder,
+        position: Int,
+        payloads: MutableList<Any>
+    ) {
+        recyclerViews[position] = holder.binding.rvAllQueuesPage
+        holder.bind(position)
+    }
+
     inner class PageViewHolder(
         val binding: PageAllQueuesDayBinding
     ) : RecyclerView.ViewHolder(binding.root) {
 
-        private val queueAdapter = QueueCardAdapter(onQueueClicked)
+        private val queueAdapter = QueueCardAdapter(onRevisionBadgeClicked)
 
         init {
             binding.rvAllQueuesPage.layoutManager = LinearLayoutManager(binding.root.context)
@@ -88,10 +99,15 @@ class AllQueuesPagerAdapter(
             val isToday = TimeUtils.isToday(daySchedule.date)
             queueAdapter.submitData(
                 queues = daySchedule.queues.values.toList(),
-                myQueueId = selectedQueue,
+                savedLocations = savedLocations,
                 isToday = isToday,
-                currentMinute = if (isToday) TimeUtils.currentMinuteOfDay() else null
+                currentMinute = if (isToday) TimeUtils.currentMinuteOfDay() else null,
+                daySchedule = daySchedule
             )
         }
+    }
+
+    companion object {
+        private const val PAYLOAD_UPDATE = "update"
     }
 }

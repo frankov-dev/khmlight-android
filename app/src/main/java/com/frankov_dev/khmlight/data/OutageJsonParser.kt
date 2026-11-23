@@ -5,19 +5,58 @@ import org.json.JSONObject
 
 object OutageJsonParser {
 
+    fun parseStatusJson(rawJson: String): FeedStatus {
+        val root = JSONObject(rawJson)
+        val datesArr = root.optJSONArray("available_dates") ?: JSONArray()
+        val dates = mutableListOf<String>()
+        for (i in 0 until datesArr.length()) {
+            val d = datesArr.optString(i, "").trim()
+            if (d.isNotEmpty()) dates.add(d)
+        }
+        return FeedStatus(
+            source = root.optString("source", ""),
+            lastUpdated = root.optString("last_updated", ""),
+            scheduleHash = root.optString("schedule_hash", "").trim(),
+            latestDate = optNullableString(root, "latest_date"),
+            todayDate = optNullableString(root, "today_date"),
+            tomorrowDate = optNullableString(root, "tomorrow_date"),
+            hasTomorrow = root.optBoolean("has_tomorrow", false),
+            availableDates = dates
+        )
+    }
+
+    /**
+     * Parses single-day convenience files (`today.json`, `tomorrow.json`, `latest.json`, `schedules/YYYY-MM-DD.json`).
+     * Returns null if `available == false` (e.g., `tomorrow.json` before publication) or if queues are missing.
+     */
+    fun parseSingleDayJson(rawJson: String): Pair<DaySchedule?, String?> {
+        val root = JSONObject(rawJson)
+        val hash = optNullableString(root, "schedule_hash")
+        if (root.has("available") && !root.optBoolean("available", true)) {
+            return null to hash
+        }
+        if (!root.has("date") || !root.has("queues")) {
+            return null to hash
+        }
+        val day = parseDayObject(root)
+        return (if (day.date.isNotBlank() && day.queues.isNotEmpty()) day else null) to hash
+    }
+
     fun parseOutagesJson(rawJson: String): OutagesFeed {
         val root = JSONObject(rawJson)
         val source = root.optString("source", "")
         val lastUpdated = root.optString("last_updated", "")
+        val scheduleHash = optNullableString(root, "schedule_hash")
 
-        // Support both outages.json (multi-day) and latest.json (single-day)
+        // Support both outages.json (multi-day) and latest.json/today.json (single-day)
         if (!root.has("schedules") && root.has("date") && root.has("queues")) {
             val day = parseDayObject(root)
             return OutagesFeed(
                 source = source,
                 lastUpdated = lastUpdated,
-                availableDates = listOf(day.date),
-                schedules = mapOf(day.date to day)
+                availableDates = if (day.date.isNotBlank()) listOf(day.date) else emptyList(),
+                schedules = if (day.date.isNotBlank()) mapOf(day.date to day) else emptyMap(),
+                scheduleHash = scheduleHash
             )
         }
 
@@ -48,19 +87,44 @@ object OutageJsonParser {
             source = source,
             lastUpdated = lastUpdated,
             availableDates = availableDates,
-            schedules = schedulesMap
+            schedules = schedulesMap,
+            scheduleHash = scheduleHash
         )
     }
 
     private fun parseDayObject(obj: JSONObject, fallbackDate: String = ""): DaySchedule {
         val date = obj.optString("date", fallbackDate).ifBlank { fallbackDate }
-        val message = if (obj.isNull("operational_message")) {
-            null
-        } else {
-            obj.optString("operational_message", "").takeIf { it.isNotBlank() }
+        val message = optNullableString(obj, "operational_message")
+        val queuesMap = parseQueuesObject(obj.optJSONObject("queues"))
+
+        val revisions = mutableListOf<ScheduleRevision>()
+        val prevArr = obj.optJSONArray("previous_schedules")
+        if (prevArr != null) {
+            for (i in 0 until prevArr.length()) {
+                val revObj = prevArr.optJSONObject(i) ?: continue
+                val revMsg = optNullableString(revObj, "operational_message")
+                val revQueues = parseQueuesObject(revObj.optJSONObject("queues"))
+                if (revQueues.isNotEmpty()) {
+                    revisions.add(
+                        ScheduleRevision(
+                            operationalMessage = revMsg,
+                            queues = revQueues
+                        )
+                    )
+                }
+            }
         }
 
-        val queuesObj = obj.optJSONObject("queues") ?: JSONObject()
+        return DaySchedule(
+            date = date,
+            operationalMessage = message,
+            queues = queuesMap,
+            previousSchedules = revisions
+        )
+    }
+
+    private fun parseQueuesObject(queuesObj: JSONObject?): Map<String, QueueSchedule> {
+        if (queuesObj == null) return emptyMap()
         val queuesMap = linkedMapOf<String, QueueSchedule>()
         val queueIds = mutableListOf<String>()
         val qKeys = queuesObj.keys()
@@ -89,11 +153,11 @@ object OutageJsonParser {
                 totalHoursOff = totalHours
             )
         }
+        return queuesMap
+    }
 
-        return DaySchedule(
-            date = date,
-            operationalMessage = message,
-            queues = queuesMap
-        )
+    private fun optNullableString(obj: JSONObject, key: String): String? {
+        if (!obj.has(key) || obj.isNull(key)) return null
+        return obj.optString(key, "").takeIf { it.isNotBlank() }
     }
 }

@@ -2,10 +2,15 @@ package com.frankov_dev.khmlight.ui
 
 import android.Manifest
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.view.Gravity
 import android.view.View
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -15,12 +20,16 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
 import com.frankov_dev.khmlight.R
 import com.frankov_dev.khmlight.data.PrefsManager
+import com.frankov_dev.khmlight.data.SavedLocation
+import com.frankov_dev.khmlight.data.SavedLocationCodec
 import com.frankov_dev.khmlight.databinding.ActivitySettingsBinding
 import com.frankov_dev.khmlight.notifications.NotificationHelper
 import com.frankov_dev.khmlight.notifications.OutageAlarmScheduler
 import com.frankov_dev.khmlight.util.TimeUtils
 import com.frankov_dev.khmlight.widget.WidgetUpdater
 import com.google.android.material.color.DynamicColors
+import com.google.android.material.color.MaterialColors
+import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.snackbar.Snackbar
 
 class SettingsActivity : AppCompatActivity() {
@@ -46,13 +55,14 @@ class SettingsActivity : AppCompatActivity() {
         setupToolbar()
         setupNotificationsSection()
         setupAppearanceSection()
-        setupQueueSection()
+        setupLocationsSection()
         setupAboutSection()
     }
 
     override fun onResume() {
         super.onResume()
         updateNotificationPermissionBanner()
+        renderLocationLists()
     }
 
     private fun setupWindowInsets() {
@@ -195,39 +205,175 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
-    private fun setupQueueSection() {
-        updateQueueLabel()
-        M3Motion.attachPressSpring(binding.cardMyQueueSetting)
-        binding.cardMyQueueSetting.setOnClickListener {
-            val sheet = QueuePickerBottomSheet.newInstance(prefs.getSelectedQueue())
-            sheet.onQueueSelected = { queueId ->
-                prefs.setSelectedQueue(queueId)
-                updateQueueLabel()
+    private fun setupLocationsSection() {
+        M3Motion.attachPressSpring(binding.btnSettingsAddLocation)
+        binding.btnSettingsAddLocation.setOnClickListener {
+            if (prefs.getSavedLocations().size >= SavedLocationCodec.MAX_LOCATIONS) {
+                Snackbar.make(binding.root, R.string.location_limit_reached, Snackbar.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            val sheet = LocationEditorBottomSheet.newForCreate()
+            sheet.onSaveLocation = { loc ->
+                prefs.upsertLocation(loc)
+                renderLocationLists()
                 WidgetUpdater.updateAllWidgets(applicationContext)
                 OutageAlarmScheduler.scheduleFromCacheAsync(applicationContext)
+                if (loc.notifyEnabled) requestPermissionIfNeeded()
                 Snackbar.make(
                     binding.root,
-                    getString(R.string.my_queue_updated, queueId),
+                    getString(R.string.location_saved_msg, loc.name, loc.queueId),
                     Snackbar.LENGTH_SHORT
                 ).show()
             }
-            sheet.show(supportFragmentManager, "settings_queue_picker")
+            sheet.show(supportFragmentManager, "settings_loc_create")
+        }
+        renderLocationLists()
+    }
+
+    private fun renderLocationLists() {
+        val locations = prefs.getSavedLocations()
+        val primary = MaterialColors.getColor(binding.root, androidx.appcompat.R.attr.colorPrimary)
+        val onSurface = MaterialColors.getColor(binding.root, com.google.android.material.R.attr.colorOnSurface)
+        val onSurfaceVariant = MaterialColors.getColor(
+            binding.root,
+            com.google.android.material.R.attr.colorOnSurfaceVariant
+        )
+        val outlineVariant = MaterialColors.getColor(
+            binding.root,
+            com.google.android.material.R.attr.colorOutlineVariant
+        )
+
+        // 1. Per-location notification switches inside Notifications section
+        binding.llNotifLocations.removeAllViews()
+        if (locations.isEmpty()) {
+            val tvEmpty = TextView(this).apply {
+                text = getString(R.string.settings_notif_locations_empty)
+                setTextColor(onSurfaceVariant)
+                textSize = 13f
+            }
+            binding.llNotifLocations.addView(tvEmpty)
+        } else {
+            for (loc in locations) {
+                val sw = MaterialSwitch(this).apply {
+                    text = "${loc.name} (${getString(R.string.queue_format, loc.queueId)})"
+                    isChecked = loc.notifyEnabled
+                    setOnCheckedChangeListener { _, isChecked ->
+                        prefs.setLocationNotifyEnabled(loc.id, isChecked)
+                        if (isChecked) requestPermissionIfNeeded()
+                        OutageAlarmScheduler.scheduleFromCacheAsync(applicationContext)
+                    }
+                }
+                binding.llNotifLocations.addView(sw)
+            }
+        }
+
+        // 2. Saved locations management list
+        binding.llSettingsLocations.removeAllViews()
+        if (locations.isEmpty()) {
+            val tvEmpty = TextView(this).apply {
+                text = getString(R.string.settings_queue_not_selected)
+                setTextColor(onSurfaceVariant)
+                textSize = 14f
+                setPadding(0, dp(4), 0, dp(8))
+            }
+            binding.llSettingsLocations.addView(tvEmpty)
+        } else {
+            locations.forEachIndexed { index, loc ->
+                if (index > 0) {
+                    val div = View(this).apply {
+                        layoutParams = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            dp(1)
+                        ).apply {
+                            topMargin = dp(6)
+                            bottomMargin = dp(6)
+                        }
+                        setBackgroundColor(outlineVariant)
+                        alpha = 0.45f
+                    }
+                    binding.llSettingsLocations.addView(div)
+                }
+
+                val row = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(2), dp(8), dp(2), dp(8))
+                    isClickable = true
+                    isFocusable = true
+                    setOnClickListener { openLocationEditor(loc) }
+                }
+
+                val iv = ImageView(this).apply {
+                    setImageResource(loc.icon.iconRes)
+                    imageTintList = ColorStateList.valueOf(primary)
+                    layoutParams = LinearLayout.LayoutParams(dp(22), dp(22)).apply {
+                        marginEnd = dp(12)
+                    }
+                }
+
+                val textCol = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                val tvName = TextView(this).apply {
+                    text = loc.name
+                    textSize = 15.5f
+                    setTextColor(onSurface)
+                }
+                val tvSub = TextView(this).apply {
+                    text = getString(R.string.queue_format, loc.queueId)
+                    textSize = 13f
+                    setTextColor(onSurfaceVariant)
+                }
+                textCol.addView(tvName)
+                textCol.addView(tvSub)
+
+                val tvEdit = TextView(this).apply {
+                    text = getString(R.string.change_queue)
+                    textSize = 13.5f
+                    setTextColor(primary)
+                }
+
+                row.addView(iv)
+                row.addView(textCol)
+                row.addView(tvEdit)
+                binding.llSettingsLocations.addView(row)
+            }
         }
     }
 
-    private fun updateQueueLabel() {
-        val q = prefs.getSelectedQueue()
-        binding.tvSelectedQueueValue.text = if (q != null) {
-            getString(R.string.queue_format, q)
-        } else {
-            getString(R.string.settings_queue_not_selected)
+    private fun openLocationEditor(location: SavedLocation) {
+        val sheet = LocationEditorBottomSheet.newForEdit(location)
+        sheet.onSaveLocation = { updated ->
+            prefs.upsertLocation(updated)
+            renderLocationLists()
+            WidgetUpdater.updateAllWidgets(applicationContext)
+            OutageAlarmScheduler.scheduleFromCacheAsync(applicationContext)
+            if (updated.notifyEnabled) requestPermissionIfNeeded()
+            Snackbar.make(
+                binding.root,
+                getString(R.string.location_saved_msg, updated.name, updated.queueId),
+                Snackbar.LENGTH_SHORT
+            ).show()
         }
+        sheet.onDeleteLocation = { removed ->
+            prefs.deleteLocation(removed.id)
+            renderLocationLists()
+            WidgetUpdater.updateAllWidgets(applicationContext)
+            OutageAlarmScheduler.scheduleFromCacheAsync(applicationContext)
+            Snackbar.make(
+                binding.root,
+                getString(R.string.location_deleted_msg, removed.name),
+                Snackbar.LENGTH_SHORT
+            ).show()
+        }
+        sheet.show(supportFragmentManager, "settings_loc_edit")
     }
 
     private fun setupAboutSection() {
         val versionName = runCatching {
             packageManager.getPackageInfo(packageName, 0).versionName
-        }.getOrNull() ?: "1.0"
+        }.getOrNull() ?: "1.1"
         binding.tvAboutAppName.text = "${getString(R.string.app_name)} $versionName"
 
         val serverFormatted = TimeUtils.formatLastUpdated(prefs.getLastServerUpdatedIso().orEmpty())
