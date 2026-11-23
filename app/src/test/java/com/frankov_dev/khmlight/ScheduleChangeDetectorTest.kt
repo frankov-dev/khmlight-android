@@ -222,4 +222,26 @@ class ScheduleChangeDetectorTest {
         assertEquals("«Робота» (черга 4.2)", SavedLocationCodec.formatQuotedLabel(locations, "4.2"))
         assertEquals("Черга 5.1", SavedLocationCodec.formatQuotedLabel(locations, "5.1"))
     }
+
+    @Test
+    fun extraWidgetQueuesReceiveTransitionAlarmsEvenWithEmptySavedLocations() {
+        val feed = feedOf(
+            "2026-11-22" to mapOf(
+                "5.1" to listOf(OutageInterval("15:00", "18:00"))
+            )
+        )
+        val now = ZonedDateTime.of(today, LocalTime.of(12, 0), kyiv)
+        val multi = ScheduleChangeDetector.computeNextAlarmsForLocations(
+            feed = feed,
+            locations = emptyList(),
+            leadMinutes = 15,
+            now = now,
+            extraWidgetQueues = setOf("5.1")
+        )
+        assertTrue(multi.nextOutageEvents.isEmpty())
+        assertEquals(
+            ZonedDateTime.of(today, LocalTime.of(15, 0), kyiv).toInstant().toEpochMilli() + 5_000L,
+            multi.nextWidgetTransitionEpochMs
+        )
+    }
 }

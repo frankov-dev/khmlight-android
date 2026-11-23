@@ -25,7 +25,12 @@ class HistoryAdapter(
         selectedGroup: LocationQueueGroup?
     ) {
         val sig = "${selectedGroup?.queueId}|${selectedGroup?.joinedNames}|" +
-            days.joinToString(",") { it.date }
+            days.joinToString("|") { d ->
+                val q = selectedGroup?.let { d.queues[it.queueId] }
+                val qSig = q?.intervalsSignature()
+                    ?: d.queues.values.sumOf { it.totalHoursOff }.toString()
+                "${d.date}:${d.operationalMessage.orEmpty().hashCode()}:$qSig"
+            }
         val changed = sig != lastSignature
         lastSignature = sig
 
@@ -35,6 +40,8 @@ class HistoryAdapter(
         if (changed) {
             animatedPositions.clear()
             notifyDataSetChanged()
+        } else if (days.isNotEmpty()) {
+            notifyItemRangeChanged(0, days.size, PAYLOAD_TICK)
         }
     }
 
@@ -50,6 +57,18 @@ class HistoryAdapter(
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val shouldAnimate = animatedPositions.add(position)
         holder.bind(days[position], position, shouldAnimate)
+    }
+
+    override fun onBindViewHolder(
+        holder: ViewHolder,
+        position: Int,
+        payloads: MutableList<Any>
+    ) {
+        if (payloads.isNotEmpty()) {
+            holder.bind(days[position], position, shouldAnimate = false)
+        } else {
+            onBindViewHolder(holder, position)
+        }
     }
 
     override fun getItemCount(): Int = days.size
@@ -109,5 +128,9 @@ class HistoryAdapter(
                 M3Motion.animateCascadeItem(binding.historyDayCard, position)
             }
         }
+    }
+
+    companion object {
+        private const val PAYLOAD_TICK = "tick"
     }
 }

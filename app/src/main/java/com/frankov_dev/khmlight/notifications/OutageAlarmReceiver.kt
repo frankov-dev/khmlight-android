@@ -63,8 +63,9 @@ class OutageAlarmReceiver : BroadcastReceiver() {
                 }
 
                 val feed = OutageRepository(appCtx).loadCachedFeed().first
-                WidgetUpdater.updateAllWidgets(appCtx, feed)
-                OutageAlarmScheduler.schedule(appCtx, feed)
+                WidgetUpdater.updateAllWidgetsSuspend(appCtx, feed)
+                // Advance effective "now" by 45s so an alarm delivered slightly early cannot re-schedule itself
+                OutageAlarmScheduler.schedule(appCtx, feed, nowOffsetSeconds = 45L)
             } finally {
                 pending.finish()
             }

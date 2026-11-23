@@ -8,6 +8,8 @@ import android.os.Build
 import com.frankov_dev.khmlight.data.OutageRepository
 import com.frankov_dev.khmlight.data.OutagesFeed
 import com.frankov_dev.khmlight.data.PrefsManager
+import com.frankov_dev.khmlight.util.TimeUtils
+import com.frankov_dev.khmlight.widget.WidgetUpdater
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -36,22 +38,30 @@ object OutageAlarmScheduler {
         }
     }
 
-    fun schedule(context: Context, feed: OutagesFeed?) {
+    fun schedule(
+        context: Context,
+        feed: OutagesFeed?,
+        nowOffsetSeconds: Long = 0L
+    ) {
         val appCtx = context.applicationContext
         val prefs = PrefsManager(appCtx)
         val locations = prefs.getSavedLocations()
+        val extraWidgetQueues = WidgetUpdater.getActiveWidgetQueues(appCtx)
         val alarmManager = appCtx.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
 
-        if (feed == null || locations.isEmpty()) {
+        if (feed == null || (locations.isEmpty() && extraWidgetQueues.isEmpty())) {
             cancelAll(appCtx, alarmManager)
             return
         }
 
         val leadMinutes = prefs.getLeadTimeMinutes()
+        val effectiveNow = TimeUtils.nowKyiv().plusSeconds(nowOffsetSeconds)
         val alarms = ScheduleChangeDetector.computeNextAlarmsForLocations(
             feed = feed,
             locations = locations,
-            leadMinutes = leadMinutes
+            leadMinutes = leadMinutes,
+            now = effectiveNow,
+            extraWidgetQueues = extraWidgetQueues
         )
 
         // 1. Outage warning alarm(s) for all enabled locations sharing the earliest trigger

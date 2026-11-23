@@ -5,6 +5,7 @@ import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import android.widget.RemoteViews
@@ -16,17 +17,62 @@ import com.frankov_dev.khmlight.data.PrefsManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 object WidgetUpdater {
+
+    private val providerEntries = listOf(
+        WidgetKind.W1X1 to Widget1x1Provider::class.java,
+        WidgetKind.W1X4 to Widget1x4Provider::class.java,
+        WidgetKind.W2X2 to Widget2x2Provider::class.java,
+        WidgetKind.W4X2 to Widget4x2Provider::class.java
+    )
 
     fun updateAllWidgets(context: Context, feedOverride: OutagesFeed? = null) {
         val appCtx = context.applicationContext
         CoroutineScope(Dispatchers.IO).launch {
-            val repo = OutageRepository(appCtx)
-            val (cached, syncedMs) = repo.loadCachedFeed()
-            val feed = feedOverride ?: cached
-            updateAllProvidersSync(appCtx, feed, syncedMs)
+            updateAllWidgetsSuspend(appCtx, feedOverride)
         }
+    }
+
+    suspend fun updateAllWidgetsSuspend(
+        context: Context,
+        feedOverride: OutagesFeed? = null
+    ) = withContext(Dispatchers.IO) {
+        val appCtx = context.applicationContext
+        val repo = OutageRepository(appCtx)
+        val (cached, syncedMs) = repo.loadCachedFeed()
+        val feed = feedOverride ?: cached
+        updateAllProvidersSync(appCtx, feed, syncedMs)
+    }
+
+    fun getActiveWidgetQueues(context: Context): Set<String> {
+        val appCtx = context.applicationContext
+        val manager = AppWidgetManager.getInstance(appCtx)
+        val widgetPrefs = WidgetPrefs(appCtx)
+        val appPrefs = PrefsManager(appCtx)
+        val savedLocations = appPrefs.getSavedLocations()
+        val dynamicAvail = WidgetPaletteResolver.isDynamicColorAvailable()
+        val queues = mutableSetOf<String>()
+
+        for ((_, cls) in providerEntries) {
+            val ids = runCatching {
+                manager.getAppWidgetIds(ComponentName(appCtx, cls))
+            }.getOrNull() ?: continue
+            for (id in ids) {
+                val config = widgetPrefs.getConfig(id, dynamicAvail)
+                val matchedLocation = when {
+                    config.locationId != null -> savedLocations.firstOrNull { it.id == config.locationId }
+                    config.queueOverride == null -> savedLocations.firstOrNull()
+                    else -> null
+                }
+                val qId = matchedLocation?.queueId ?: config.queueOverride ?: appPrefs.getSelectedQueue()
+                if (!qId.isNullOrBlank()) {
+                    queues.add(qId)
+                }
+            }
+        }
+        return queues
     }
 
     suspend fun updateWidgetsForKind(
@@ -56,13 +102,7 @@ object WidgetUpdater {
         lastAppSyncMs: Long?
     ) {
         val manager = AppWidgetManager.getInstance(context)
-        val providers = listOf(
-            WidgetKind.W1X1 to Widget1x1Provider::class.java,
-            WidgetKind.W1X4 to Widget1x4Provider::class.java,
-            WidgetKind.W2X2 to Widget2x2Provider::class.java,
-            WidgetKind.W4X2 to Widget4x2Provider::class.java
-        )
-        for ((kind, cls) in providers) {
+        for ((kind, cls) in providerEntries) {
             val ids = manager.getAppWidgetIds(ComponentName(context, cls))
             for (id in ids) {
                 val views = buildRemoteViews(context, manager, kind, id, feed, lastAppSyncMs)
@@ -113,7 +153,7 @@ object WidgetUpdater {
         )
 
         val options = manager.getAppWidgetOptions(widgetId)
-        val (targetW, targetH) = resolveTargetSizeDp(kind, options)
+        val (targetW, targetH) = resolveTargetSizeDp(context, kind, options)
 
         val bitmap = KhmWidgetCanvasRenderer.render(
             context = context,
@@ -132,20 +172,41 @@ object WidgetUpdater {
         return views
     }
 
-    private fun resolveTargetSizeDp(kind: WidgetKind, options: Bundle): Pair<Int, Int> {
+    private fun resolveTargetSizeDp(
+        context: Context,
+        kind: WidgetKind,
+        options: Bundle
+    ): Pair<Int, Int> {
+        val isLandscape =
+            context.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             @Suppress("DEPRECATION")
             val sizes = options.getParcelableArrayList<android.util.SizeF>(
                 AppWidgetManager.OPTION_APPWIDGET_SIZES
-            )
-            val s = sizes?.firstOrNull()
-            if (s != null && s.width > 0f && s.height > 0f) {
-                return s.width.toInt() to s.height.toInt()
+            )?.filter { it.width > 0f && it.height > 0f }
+            if (!sizes.isNullOrEmpty()) {
+                val chosen = if (sizes.size >= 2) {
+                    if (isLandscape) sizes.maxByOrNull { it.width } else sizes.minByOrNull { it.width }
+                } else {
+                    sizes.first()
+                }
+                if (chosen != null) {
+                    return chosen.width.toInt() to chosen.height.toInt()
+                }
             }
         }
 
-        val minW = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0)
-        val minH = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0)
+        val minW = options.getInt(
+            if (isLandscape) AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH
+            else AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH,
+            0
+        ).takeIf { it > 0 } ?: options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0)
+        val minH = options.getInt(
+            if (isLandscape) AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT
+            else AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT,
+            0
+        ).takeIf { it > 0 } ?: options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0)
         if (minW > 0 && minH > 0) {
             return minW to minH
         }

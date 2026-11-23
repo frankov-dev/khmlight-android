@@ -5,11 +5,12 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
+import androidx.core.os.bundleOf
+import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.frankov_dev.khmlight.R
 import com.frankov_dev.khmlight.data.DaySchedule
-import com.frankov_dev.khmlight.data.QueueRevisionDiff
 import com.frankov_dev.khmlight.data.SavedLocation
 import com.frankov_dev.khmlight.ui.adapters.QueueCardAdapter
 import com.frankov_dev.khmlight.util.TimeUtils
@@ -19,7 +20,6 @@ class HistoryDayBottomSheet : BottomSheetDialogFragment() {
 
     var daySchedule: DaySchedule? = null
     var savedLocations: List<SavedLocation> = emptyList()
-    var onRevisionBadgeClicked: ((String, QueueRevisionDiff) -> Unit)? = null
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -31,14 +31,29 @@ class HistoryDayBottomSheet : BottomSheetDialogFragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        val day = daySchedule ?: run {
-            dismiss()
-            return
+        val vm = runCatching {
+            ViewModelProvider(requireActivity())[MainViewModel::class.java]
+        }.getOrNull()
+        val argDate = arguments?.getString(ARG_DATE)
+        val day = daySchedule
+            ?: (if (argDate != null) vm?.uiState?.value?.feed?.schedules?.get(argDate) else null)
+            ?: run {
+                view.post { if (isAdded) dismissAllowingStateLoss() }
+                return
+            }
+        val locations = savedLocations.ifEmpty {
+            vm?.uiState?.value?.savedLocations.orEmpty()
         }
 
         val tvTitle = view.findViewById<TextView>(R.id.tvSheetDateTitle)
         val tvMsg = view.findViewById<TextView>(R.id.tvSheetMessage)
         val rv = view.findViewById<RecyclerView>(R.id.rvSheetQueues)
+
+        val screenH = resources.displayMetrics.heightPixels
+        val density = resources.displayMetrics.density
+        rv.layoutParams = rv.layoutParams.apply {
+            height = (screenH * 0.64f).toInt().coerceAtLeast((200 * density).toInt())
+        }
 
         tvTitle.text = TimeUtils.formatDateHeading(day.date)
         if (!day.operationalMessage.isNullOrBlank()) {
@@ -51,7 +66,13 @@ class HistoryDayBottomSheet : BottomSheetDialogFragment() {
         val adapter = QueueCardAdapter(
             onRevisionBadgeClicked = { date, diff ->
                 dismiss()
-                onRevisionBadgeClicked?.invoke(date, diff)
+                parentFragmentManager.setFragmentResult(
+                    REQUEST_KEY,
+                    bundleOf(
+                        RESULT_DATE_KEY to date,
+                        RESULT_QUEUE_ID to diff.queueId
+                    )
+                )
             }
         )
         rv.layoutManager = LinearLayoutManager(requireContext())
@@ -61,10 +82,25 @@ class HistoryDayBottomSheet : BottomSheetDialogFragment() {
         val nowMin = if (isToday) TimeUtils.currentMinuteOfDay() else null
         adapter.submitData(
             queues = day.queues.values.toList(),
-            savedLocations = savedLocations,
+            savedLocations = locations,
             isToday = isToday,
             currentMinute = nowMin,
             daySchedule = day
         )
+    }
+
+    companion object {
+        const val REQUEST_KEY = "req_history_day_sheet"
+        const val RESULT_DATE_KEY = "result_date_key"
+        const val RESULT_QUEUE_ID = "result_queue_id"
+        private const val ARG_DATE = "arg_date"
+
+        fun newInstance(day: DaySchedule, savedLocations: List<SavedLocation>): HistoryDayBottomSheet {
+            return HistoryDayBottomSheet().apply {
+                this.daySchedule = day
+                this.savedLocations = savedLocations
+                arguments = bundleOf(ARG_DATE to day.date)
+            }
+        }
     }
 }

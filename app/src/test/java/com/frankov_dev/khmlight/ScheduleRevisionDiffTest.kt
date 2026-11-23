@@ -77,4 +77,19 @@ class ScheduleRevisionDiffTest {
         assertEquals("−1 год", diff52.formatDeltaShort())
         assertEquals("Оновлено · −1 год", diff52.formatBadgeText())
     }
+
+    @Test
+    fun formatDeltaShortRoundsNearIntegerWithoutTrailingZero() {
+        val qCurr = QueueSchedule("1.1", listOf(OutageInterval("10:00", "14:00")), 3.98)
+        val qPrev = QueueSchedule("1.1", listOf(OutageInterval("10:00", "12:00")), 2.0)
+        val day = DaySchedule(
+            date = "2026-11-23",
+            operationalMessage = null,
+            queues = mapOf("1.1" to qCurr),
+            previousSchedules = listOf(ScheduleRevision(null, mapOf("1.1" to qPrev)))
+        )
+        val diff = day.computeQueueDiff("1.1")
+        assertNotNull(diff)
+        assertEquals("+2 год", diff!!.formatDeltaShort())
+    }
 }

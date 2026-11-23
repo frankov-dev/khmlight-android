@@ -17,8 +17,16 @@ data class FetchResult(
 
 class OutageRepository(context: Context) {
 
-    private val cacheFile = File(context.filesDir, "outages_cache.json")
-    private val prefs = PrefsManager(context)
+    private val appContext = context.applicationContext
+    private val cacheFile = File(appContext.filesDir, "outages_cache.json")
+    private val tempCacheFile = File(appContext.filesDir, "outages_cache.json.tmp")
+    private val prefs = PrefsManager(appContext)
+    private val userAgent: String by lazy {
+        val ver = runCatching {
+            appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName
+        }.getOrNull() ?: "1.1"
+        "KHMlight-Android/$ver"
+    }
 
     companion object {
         private const val BASE_DOCS_URL =
@@ -29,6 +37,7 @@ class OutageRepository(context: Context) {
         const val TOMORROW_URL = "$BASE_DOCS_URL/tomorrow.json"
         const val LATEST_URL = "$BASE_DOCS_URL/latest.json"
         private const val TIMEOUT_MS = 15_000
+        private val cacheLock = Any()
     }
 
     suspend fun loadCachedFeed(): Pair<OutagesFeed?, Long?> = withContext(Dispatchers.IO) {
@@ -50,6 +59,7 @@ class OutageRepository(context: Context) {
         val cached = readCache()
         val savedHash = prefs.getLastScheduleHash() ?: cached?.scheduleHash
         var status: FeedStatus? = null
+        var pendingStatusEtag: String? = null
 
         // Step 1: Fast poll via status.json (~250B)
         if (cached != null) {
@@ -67,7 +77,7 @@ class OutageRepository(context: Context) {
                     is HttpResult.Body -> {
                         val parsedStatus = OutageJsonParser.parseStatusJson(statusRes.text)
                         status = parsedStatus
-                        prefs.setLastStatusEtag(statusRes.etag)
+                        pendingStatusEtag = statusRes.etag
                         if (parsedStatus.lastUpdated.isNotBlank()) {
                             prefs.setLastServerUpdatedIso(parsedStatus.lastUpdated)
                         }
@@ -82,6 +92,7 @@ class OutageRepository(context: Context) {
 
                         if (hashMatches && hasTodayInCache && hasTomorrowInCache) {
                             val nowMs = System.currentTimeMillis()
+                            prefs.setLastStatusEtag(statusRes.etag)
                             prefs.setLastAppSyncMs(nowMs)
                             return@withContext FetchResult(
                                 feed = cached,
@@ -104,6 +115,9 @@ class OutageRepository(context: Context) {
                     val nowMs = System.currentTimeMillis()
                     prefs.setLastAppSyncMs(nowMs)
                     if (cached != null) {
+                        if (!pendingStatusEtag.isNullOrBlank()) {
+                            prefs.setLastStatusEtag(pendingStatusEtag)
+                        }
                         return@withContext FetchResult(
                             feed = cached,
                             isFromCache = false,
@@ -117,6 +131,9 @@ class OutageRepository(context: Context) {
                         val nowMs = System.currentTimeMillis()
                         writeCache(response.text)
                         prefs.setLastEtag(response.etag)
+                        if (!pendingStatusEtag.isNullOrBlank()) {
+                            prefs.setLastStatusEtag(pendingStatusEtag)
+                        }
                         prefs.setLastScheduleHash(parsed.scheduleHash ?: status?.scheduleHash)
                         prefs.setLastServerUpdatedIso(parsed.lastUpdated)
                         prefs.setLastAppSyncMs(nowMs)
@@ -161,6 +178,11 @@ class OutageRepository(context: Context) {
                         schedules = merged,
                         scheduleHash = hash ?: status?.scheduleHash
                     )
+                    // Persist merged feed to cache so widgets & background readers see it immediately,
+                    // but clear status/outages ETags so next poll still upgrades to full 14-day outages.json
+                    writeCache(OutageJsonParser.encodeOutagesJson(feed))
+                    prefs.setLastEtag(null)
+                    prefs.setLastStatusEtag(null)
                     prefs.setLastScheduleHash(feed.scheduleHash)
                     prefs.setLastAppSyncMs(nowMs)
                     return@withContext FetchResult(
@@ -183,6 +205,7 @@ class OutageRepository(context: Context) {
                     val nowMs = System.currentTimeMillis()
                     writeCache(response.text)
                     prefs.setLastEtag(null)
+                    prefs.setLastStatusEtag(null)
                     prefs.setLastScheduleHash(parsed.scheduleHash)
                     prefs.setLastServerUpdatedIso(parsed.lastUpdated)
                     prefs.setLastAppSyncMs(nowMs)
@@ -228,7 +251,7 @@ class OutageRepository(context: Context) {
             useCaches = false
             setRequestProperty("Cache-Control", "no-cache")
             setRequestProperty("Accept", "application/json")
-            setRequestProperty("User-Agent", "KHMlight-Android/1.1")
+            setRequestProperty("User-Agent", userAgent)
             if (!etag.isNullOrBlank()) {
                 setRequestProperty("If-None-Match", etag)
             }
@@ -249,7 +272,7 @@ class OutageRepository(context: Context) {
         }
     }
 
-    private fun readCache(): OutagesFeed? {
+    private fun readCache(): OutagesFeed? = synchronized(cacheLock) {
         if (!cacheFile.exists()) return null
         return try {
             val raw = cacheFile.readText(Charsets.UTF_8)
@@ -259,9 +282,13 @@ class OutageRepository(context: Context) {
         }
     }
 
-    private fun writeCache(rawJson: String) {
+    private fun writeCache(rawJson: String) = synchronized(cacheLock) {
         try {
-            cacheFile.writeText(rawJson, Charsets.UTF_8)
+            tempCacheFile.writeText(rawJson, Charsets.UTF_8)
+            if (!tempCacheFile.renameTo(cacheFile)) {
+                tempCacheFile.copyTo(cacheFile, overwrite = true)
+                tempCacheFile.delete()
+            }
         } catch (_: Exception) {
             // Ignore cache write errors
         }

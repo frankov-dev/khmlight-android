@@ -13,7 +13,7 @@ class WidgetTickWorker(
 
     override suspend fun doWork(): Result {
         val feed = OutageRepository(applicationContext).loadCachedFeed().first
-        WidgetUpdater.updateAllWidgets(applicationContext, feed)
+        WidgetUpdater.updateAllWidgetsSuspend(applicationContext, feed)
         OutageAlarmScheduler.schedule(applicationContext, feed)
         return Result.success()
     }

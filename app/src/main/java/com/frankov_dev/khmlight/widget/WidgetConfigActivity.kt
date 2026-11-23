@@ -17,6 +17,7 @@ import com.frankov_dev.khmlight.data.OutageInterval
 import com.frankov_dev.khmlight.data.PrefsManager
 import com.frankov_dev.khmlight.data.QueueConstants
 import com.frankov_dev.khmlight.databinding.ActivityWidgetConfigBinding
+import com.frankov_dev.khmlight.notifications.OutageAlarmScheduler
 import com.frankov_dev.khmlight.ui.M3Motion
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.chip.Chip
@@ -55,9 +56,13 @@ class WidgetConfigActivity : AppCompatActivity() {
         binding = ActivityWidgetConfigBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        binding.configToolbar.setNavigationOnClickListener {
+            finish()
+        }
+
         setupWindowInsets()
         detectWidgetKind()
-        loadInitialConfig()
+        loadInitialConfig(savedInstanceState)
         buildShapePicker()
         buildColorPresetPicker()
         buildThemeModePicker()
@@ -70,9 +75,21 @@ class WidgetConfigActivity : AppCompatActivity() {
         }
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString(STATE_SHAPE, selectedShape.name)
+        outState.putString(STATE_COLOR, selectedColorPreset.name)
+        outState.putString(STATE_THEME, selectedThemeMode.name)
+        outState.putString(STATE_QUEUE_OVERRIDE, selectedQueueOverride)
+        outState.putString(STATE_LOCATION_ID, selectedLocationId)
+    }
+
     private fun setupWindowInsets() {
         ViewCompat.setOnApplyWindowInsetsListener(binding.configRoot) { _, insets ->
-            val sysBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val sysBars = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            binding.configRoot.updatePadding(left = sysBars.left, right = sysBars.right)
             binding.configAppBar.updatePadding(top = sysBars.top)
             binding.configFooter.updatePadding(bottom = sysBars.bottom + dp(16))
             insets
@@ -101,8 +118,22 @@ class WidgetConfigActivity : AppCompatActivity() {
             }
     }
 
-    private fun loadInitialConfig() {
+    private fun loadInitialConfig(savedInstanceState: Bundle?) {
         val dynamicAvailable = WidgetPaletteResolver.isDynamicColorAvailable()
+        if (savedInstanceState != null) {
+            selectedShape = savedInstanceState.getString(STATE_SHAPE)
+                ?.let { runCatching { BadgeShape.valueOf(it) }.getOrNull() }
+                ?: BadgeShape.B1_SQUIRCLE
+            selectedColorPreset = savedInstanceState.getString(STATE_COLOR)
+                ?.let { runCatching { WidgetColorPreset.valueOf(it) }.getOrNull() }
+                ?: if (dynamicAvailable) WidgetColorPreset.DYNAMIC else WidgetColorPreset.LAVENDER
+            selectedThemeMode = savedInstanceState.getString(STATE_THEME)
+                ?.let { runCatching { WidgetThemeMode.valueOf(it) }.getOrNull() }
+                ?: WidgetThemeMode.SYSTEM
+            selectedQueueOverride = savedInstanceState.getString(STATE_QUEUE_OVERRIDE)
+            selectedLocationId = savedInstanceState.getString(STATE_LOCATION_ID)
+            return
+        }
         val existing = WidgetPrefs(this).getConfig(appWidgetId, dynamicAvailable)
         selectedShape = existing.badgeShape
         selectedColorPreset = existing.colorPreset
@@ -404,6 +435,7 @@ class WidgetConfigActivity : AppCompatActivity() {
                 widgetIds = intArrayOf(appWidgetId),
                 fetchFreshIfNoCache = true
             )
+            OutageAlarmScheduler.scheduleFromCacheAsync(this@WidgetConfigActivity)
             val resultIntent = Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
             setResult(RESULT_OK, resultIntent)
             finish()
@@ -411,4 +443,12 @@ class WidgetConfigActivity : AppCompatActivity() {
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    companion object {
+        private const val STATE_SHAPE = "state_shape"
+        private const val STATE_COLOR = "state_color"
+        private const val STATE_THEME = "state_theme"
+        private const val STATE_QUEUE_OVERRIDE = "state_queue_override"
+        private const val STATE_LOCATION_ID = "state_location_id"
+    }
 }

@@ -55,13 +55,12 @@ data class QueueRevisionDiff(
     val deltaHours: Double
 ) {
     fun formatDeltaShort(): String {
-        if (abs(deltaHours) < 0.01) return ""
+        val rounded = round(abs(deltaHours) * 10.0) / 10.0
+        if (rounded < 0.05) return ""
         val sign = if (deltaHours > 0) "+" else "−"
-        val absVal = abs(deltaHours)
-        val formatted = if (absVal == absVal.toLong().toDouble()) {
-            "${absVal.toLong()} год"
+        val formatted = if (rounded % 1.0 == 0.0) {
+            "${rounded.toLong()} год"
         } else {
-            val rounded = round(absVal * 10.0) / 10.0
             "$rounded год"
         }
         return "$sign$formatted"

@@ -87,4 +87,16 @@ class TimeUtilsTest {
         assertEquals("2 год 30 хв", TimeUtils.formatDurationMinutes(150))
         assertEquals("45 хв", TimeUtils.formatDurationMinutes(45))
     }
+
+    @Test
+    fun computeLiveStatusMergesContiguousIntervals() {
+        val intervals = listOf(
+            OutageInterval("10:00", "12:00", type = "base"),
+            OutageInterval("12:00", "14:00", type = "additional")
+        )
+        val status = TimeUtils.computeLiveStatus(intervals, nowMinute = 11 * 60)
+        assertTrue(status.isPowerOff)
+        assertEquals("14:00", status.nextChangeTime)
+        assertEquals(180, status.minutesUntilChange)
+    }
 }

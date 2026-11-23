@@ -44,7 +44,8 @@ object KhmWidgetCanvasRenderer {
     ): Bitmap {
         val palette = WidgetPaletteResolver.resolve(context, config.colorPreset, config.themeMode)
         val fonts = loadFonts(context)
-        val density = context.resources.displayMetrics.density
+        // Cap render density at 2.5f to keep RemoteViews Bitmaps well within Binder IPC memory limits on xxxhdpi devices
+        val density = context.resources.displayMetrics.density.coerceAtMost(2.5f)
 
         return when (kind) {
             WidgetKind.W1X1 -> render1x1(context, data, config, palette, fonts, density, widthDp, heightDp)

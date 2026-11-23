@@ -146,9 +146,10 @@ object ScheduleChangeDetector {
         feed: OutagesFeed?,
         locations: List<SavedLocation>,
         leadMinutes: Int,
-        now: ZonedDateTime = TimeUtils.nowKyiv()
+        now: ZonedDateTime = TimeUtils.nowKyiv(),
+        extraWidgetQueues: Set<String> = emptySet()
     ): MultiUpcomingAlarms {
-        if (feed == null || locations.isEmpty()) {
+        if (feed == null || (locations.isEmpty() && extraWidgetQueues.isEmpty())) {
             return MultiUpcomingAlarms(null, emptyList(), null, emptyList(), null)
         }
 
@@ -158,7 +159,7 @@ object ScheduleChangeDetector {
         val candidateDates = listOf(today, today.plusDays(1))
 
         val notifyQueueIds = locations.filter { it.notifyEnabled }.map { it.queueId }.distinct()
-        val allQueueIds = locations.map { it.queueId }.distinct()
+        val allQueueIds = (locations.map { it.queueId } + extraWidgetQueues).distinct()
 
         var bestOutageMs: Long? = null
         val bestOutageEvents = mutableListOf<ScheduledEvent>()

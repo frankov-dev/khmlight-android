@@ -21,15 +21,7 @@ keystore.properties
 
 # IntelliJ / Android Studio
 *.iml
-/.idea/caches/
-/.idea/libraries/
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-/.idea/deploymentTargetSelector.xml
-/.idea/tasks.xml
-/.idea/shelf/
+.idea/
 
 # OS & Logs
 .DS_Store

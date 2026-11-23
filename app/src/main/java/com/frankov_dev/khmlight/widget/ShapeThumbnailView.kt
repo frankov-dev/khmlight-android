@@ -34,6 +34,7 @@ class ShapeThumbnailView @JvmOverloads constructor(
         style = Paint.Style.STROKE
         strokeWidth = 2f * resources.displayMetrics.density
     }
+    private val targetRect = RectF()
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
@@ -42,8 +43,8 @@ class ShapeThumbnailView @JvmOverloads constructor(
         if (w <= 0f || h <= 0f) return
 
         val pad = 3f * resources.displayMetrics.density
-        val target = RectF(pad, pad, w - pad, h - pad)
-        val path = ExpressiveShapes.buildPath(shape, target)
+        targetRect.set(pad, pad, w - pad, h - pad)
+        val path = ExpressiveShapes.buildPath(shape, targetRect)
 
         fillPaint.color = if (isShapeSelected) {
             MaterialColors.getColor(

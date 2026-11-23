@@ -11,12 +11,11 @@ import com.frankov_dev.khmlight.notifications.OutageAlarmScheduler
 import com.frankov_dev.khmlight.notifications.ScheduleChangeDetector
 import com.frankov_dev.khmlight.util.TimeUtils
 import com.frankov_dev.khmlight.widget.WidgetUpdater
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 enum class MainTab {
@@ -61,18 +60,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     )
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
 
+    private var refreshJob: Job? = null
+
     init {
         loadInitial()
-        startClockTicker()
     }
 
-    private fun startClockTicker() {
-        viewModelScope.launch {
-            while (isActive) {
-                delay(30_000L)
-                _uiState.update { it.copy(clockTick = it.clockTick + 1) }
-            }
-        }
+    fun onClockTick() {
+        _uiState.update { it.copy(clockTick = it.clockTick + 1) }
     }
 
     private fun loadInitial() {
@@ -93,7 +88,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun refresh(showFullLoader: Boolean = false) {
-        viewModelScope.launch {
+        if (refreshJob?.isActive == true) return
+        refreshJob = viewModelScope.launch {
             _uiState.update {
                 it.copy(
                     isLoading = showFullLoader && it.feed == null,

@@ -5,7 +5,6 @@
     <string name="nav_all_queues">Усі черги</string>
     <string name="nav_history">Історія</string>
 
-    <string name="select_queue">Обрати чергу</string>
     <string name="add_location">Додати локацію</string>
     <string name="edit_location">Редагувати локацію</string>
     <string name="new_location_title">Нова локація</string>
@@ -22,12 +21,9 @@
     <string name="location_drag_desc">Перетягнути для зміни порядку</string>
     <string name="location_edit_desc">Редагувати локацію</string>
     <string name="queue_format">Черга %1$s</string>
-    <string name="my_queue_badge">Моя черга</string>
     <string name="choose_your_queue_title">Додайте вашу першу локацію</string>
     <string name="choose_your_queue_subtitle">Вкажіть назву, іконку та підчергу (наприклад, Дім або Робота), щоб бачити статус світла й графік одразу на головному екрані</string>
     <string name="change_queue">Змінити</string>
-    <string name="set_as_my_queue">Додати в мої черги</string>
-    <string name="my_queue_updated">Обрано підчергу %1$s</string>
 
     <string name="status_power_on">Є світло</string>
     <string name="status_power_off">Немає світла</string>
@@ -47,6 +43,7 @@
 
     <string name="intervals_header">Графік відключень</string>
     <string name="operational_notice_label">Повідомлення ХОЕ</string>
+    <string name="prev_operational_messages_header">Попередні повідомлення за день</string>
     <string name="interval_now">Зараз</string>
     <string name="interval_done">Минуло</string>
     <string name="interval_upcoming">Заплановано</string>
@@ -54,12 +51,9 @@
     <string name="interval_sub_upcoming">Заплановане відключення · %1$s</string>
     <string name="interval_sub_done">Відключення минуло · %1$s</string>
 
-    <string name="history_filter_my">Лише моя черга</string>
     <string name="history_filter_all">Усі черги</string>
     <string name="history_tap_details">Натисніть для перегляду всіх черг</string>
-    <string name="history_no_data">Немає збереженої історії</string>
 
-    <string name="action_refresh">Оновити</string>
     <string name="action_settings">Налаштування</string>
     <string name="navigate_back">Назад</string>
     <string name="settings_title">Налаштування</string>
@@ -117,5 +111,4 @@
     <string name="error_loading">Не вдалося завантажити дані</string>
     <string name="retry">Спробувати ще</string>
     <string name="loading">Завантаження графіка…</string>
-    <string name="close">Закрити</string>
 </resources>

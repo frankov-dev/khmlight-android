@@ -10,6 +10,8 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.ColorUtils
+import androidx.core.os.bundleOf
+import androidx.lifecycle.ViewModelProvider
 import com.frankov_dev.khmlight.R
 import com.frankov_dev.khmlight.data.QueueRevisionDiff
 import com.frankov_dev.khmlight.data.QueueSchedule
@@ -49,10 +51,24 @@ class ScheduleRevisionsBottomSheet : BottomSheetDialogFragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        val d = diff ?: run {
-            dismiss()
-            return
-        }
+        val resolvedDateKey = dateKey.ifBlank { arguments?.getString(ARG_DATE_KEY).orEmpty() }
+        dateKey = resolvedDateKey
+        val argQueueId = arguments?.getString(ARG_QUEUE_ID)
+        val d = diff
+            ?: run {
+                if (resolvedDateKey.isNotBlank() && !argQueueId.isNullOrBlank()) {
+                    val vm = runCatching {
+                        ViewModelProvider(requireActivity())[MainViewModel::class.java]
+                    }.getOrNull()
+                    vm?.uiState?.value?.feed?.schedules?.get(resolvedDateKey)?.computeQueueDiff(argQueueId)
+                } else {
+                    null
+                }
+            }
+            ?: run {
+                view.post { if (isAdded) dismissAllowingStateLoss() }
+                return
+            }
 
         val ctx = requireContext()
         binding.tvRevisionSheetTitle.text =
@@ -301,5 +317,21 @@ class ScheduleRevisionsBottomSheet : BottomSheetDialogFragment() {
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null
+    }
+
+    companion object {
+        private const val ARG_DATE_KEY = "arg_date_key"
+        private const val ARG_QUEUE_ID = "arg_queue_id"
+
+        fun newInstance(dateKey: String, diff: QueueRevisionDiff): ScheduleRevisionsBottomSheet {
+            return ScheduleRevisionsBottomSheet().apply {
+                this.dateKey = dateKey
+                this.diff = diff
+                arguments = bundleOf(
+                    ARG_DATE_KEY to dateKey,
+                    ARG_QUEUE_ID to diff.queueId
+                )
+            }
+        }
     }
 }

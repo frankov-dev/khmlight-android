@@ -32,9 +32,6 @@ class LocationEditorBottomSheet : BottomSheetDialogFragment() {
     private var _binding: BottomSheetLocationEditorBinding? = null
     private val binding get() = _binding!!
 
-    var onSaveLocation: ((SavedLocation) -> Unit)? = null
-    var onDeleteLocation: ((SavedLocation) -> Unit)? = null
-
     private var editingId: String? = null
     private var selectedIcon: LocationIcon = LocationIcon.HOME
     private var selectedQueue: String? = null
@@ -66,15 +63,22 @@ class LocationEditorBottomSheet : BottomSheetDialogFragment() {
         val args = arguments
         editingId = args?.getString(ARG_ID)
         val initialName = args?.getString(ARG_NAME).orEmpty()
-        selectedIcon = LocationIcon.fromName(args?.getString(ARG_ICON))
-        selectedQueue = args?.getString(ARG_QUEUE)
-        notifyEnabled = args?.getBoolean(ARG_NOTIFY, true) ?: true
+        selectedIcon = LocationIcon.fromName(
+            savedInstanceState?.getString(ARG_ICON) ?: args?.getString(ARG_ICON)
+        )
+        selectedQueue = savedInstanceState?.getString(ARG_QUEUE) ?: args?.getString(ARG_QUEUE)
+        notifyEnabled = savedInstanceState?.getBoolean(
+            ARG_NOTIFY,
+            args?.getBoolean(ARG_NOTIFY, true) ?: true
+        ) ?: (args?.getBoolean(ARG_NOTIFY, true) ?: true)
 
         val isEdit = !editingId.isNullOrBlank()
         binding.tvEditorTitle.text = getString(
             if (isEdit) R.string.edit_location else R.string.new_location_title
         )
-        binding.etLocationName.setText(initialName)
+        if (savedInstanceState == null) {
+            binding.etLocationName.setText(initialName)
+        }
         binding.switchLocationNotify.isChecked = notifyEnabled
         binding.btnDeleteLocation.visibility = if (isEdit) View.VISIBLE else View.GONE
 
@@ -104,7 +108,17 @@ class LocationEditorBottomSheet : BottomSheetDialogFragment() {
                 icon = selectedIcon,
                 notifyEnabled = notifyEnabled
             )
-            onSaveLocation?.invoke(saved)
+            parentFragmentManager.setFragmentResult(
+                REQUEST_KEY,
+                bundleOf(
+                    RESULT_ACTION to ACTION_SAVE,
+                    ARG_ID to saved.id,
+                    ARG_NAME to saved.name,
+                    ARG_QUEUE to saved.queueId,
+                    ARG_ICON to saved.icon.name,
+                    ARG_NOTIFY to saved.notifyEnabled
+                )
+            )
             dismiss()
         }
 
@@ -119,9 +133,26 @@ class LocationEditorBottomSheet : BottomSheetDialogFragment() {
                 icon = selectedIcon,
                 notifyEnabled = notifyEnabled
             )
-            onDeleteLocation?.invoke(toDelete)
+            parentFragmentManager.setFragmentResult(
+                REQUEST_KEY,
+                bundleOf(
+                    RESULT_ACTION to ACTION_DELETE,
+                    ARG_ID to toDelete.id,
+                    ARG_NAME to toDelete.name,
+                    ARG_QUEUE to toDelete.queueId,
+                    ARG_ICON to toDelete.icon.name,
+                    ARG_NOTIFY to toDelete.notifyEnabled
+                )
+            )
             dismiss()
         }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString(ARG_ICON, selectedIcon.name)
+        outState.putString(ARG_QUEUE, selectedQueue)
+        outState.putBoolean(ARG_NOTIFY, notifyEnabled)
     }
 
     private fun buildPresetChips() {
@@ -298,11 +329,32 @@ class LocationEditorBottomSheet : BottomSheetDialogFragment() {
     }
 
     companion object {
+        const val REQUEST_KEY = "req_location_editor"
+        const val RESULT_ACTION = "result_action"
+        const val ACTION_SAVE = "save"
+        const val ACTION_DELETE = "delete"
+
         private const val ARG_ID = "id"
         private const val ARG_NAME = "name"
         private const val ARG_ICON = "icon"
         private const val ARG_QUEUE = "queue"
         private const val ARG_NOTIFY = "notify"
+
+        fun parseResultLocation(bundle: Bundle): Pair<String, SavedLocation>? {
+            val action = bundle.getString(RESULT_ACTION) ?: return null
+            val id = bundle.getString(ARG_ID) ?: return null
+            val name = bundle.getString(ARG_NAME).orEmpty()
+            val queue = bundle.getString(ARG_QUEUE).orEmpty()
+            val icon = LocationIcon.fromName(bundle.getString(ARG_ICON))
+            val notify = bundle.getBoolean(ARG_NOTIFY, true)
+            return action to SavedLocation(
+                id = id,
+                name = name,
+                queueId = queue,
+                icon = icon,
+                notifyEnabled = notify
+            )
+        }
 
         fun newForCreate(preselectedQueue: String? = null): LocationEditorBottomSheet {
             return LocationEditorBottomSheet().apply {

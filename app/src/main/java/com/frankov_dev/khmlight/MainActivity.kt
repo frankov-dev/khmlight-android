@@ -46,6 +46,8 @@ import com.frankov_dev.khmlight.util.TimeUtils
 import com.google.android.material.chip.Chip
 import com.google.android.material.color.MaterialColors
 import com.google.android.material.snackbar.Snackbar
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
@@ -61,7 +63,8 @@ class MainActivity : AppCompatActivity() {
     private var isHorizontalDragging: Boolean = false
     private var isLocationDragging: Boolean = false
     private var lastRenderedTab: MainTab? = null
-    private var lastHistoryChipsSig: String? = null
+    private var lastHistoryChipsStructureSig: String? = null
+    private val historyChipsByQueue = mutableMapOf<String?, Chip>()
 
     private val requestNotificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -83,6 +86,7 @@ class MainActivity : AppCompatActivity() {
         setupTopBar()
         setupBottomNav()
         setupPagersAndLists()
+        setupFragmentResultListeners()
         setupListeners()
         observeState()
     }
@@ -111,7 +115,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupWindowInsets() {
         ViewCompat.setOnApplyWindowInsetsListener(binding.rootLayout) { _, insets ->
-            val sysBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val sysBars = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            binding.rootLayout.updatePadding(left = sysBars.left, right = sysBars.right)
             binding.appBarLayout.updatePadding(top = sysBars.top)
             binding.bottomNav.updatePadding(bottom = sysBars.bottom)
             insets
@@ -268,11 +275,76 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun setupFragmentResultListeners() {
+        supportFragmentManager.setFragmentResultListener(
+            LocationEditorBottomSheet.REQUEST_KEY,
+            this
+        ) { _, bundle ->
+            val (action, loc) = LocationEditorBottomSheet.parseResultLocation(bundle) ?: return@setFragmentResultListener
+            when (action) {
+                LocationEditorBottomSheet.ACTION_SAVE -> {
+                    viewModel.saveLocation(loc)
+                    if (loc.notifyEnabled) {
+                        maybeRequestNotificationPermission()
+                    }
+                    Snackbar.make(
+                        binding.root,
+                        getString(R.string.location_saved_msg, loc.name, loc.queueId),
+                        Snackbar.LENGTH_SHORT
+                    ).show()
+                }
+                LocationEditorBottomSheet.ACTION_DELETE -> {
+                    viewModel.deleteLocation(loc.id)
+                    Snackbar.make(
+                        binding.root,
+                        getString(R.string.location_deleted_msg, loc.name),
+                        Snackbar.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        }
+
+        supportFragmentManager.setFragmentResultListener(
+            LocationGroupBottomSheet.REQUEST_KEY,
+            this
+        ) { _, bundle ->
+            when (bundle.getString(LocationGroupBottomSheet.RESULT_ACTION)) {
+                LocationGroupBottomSheet.ACTION_EDIT_LOCATION -> {
+                    val locId = bundle.getString(LocationGroupBottomSheet.RESULT_LOCATION_ID) ?: return@setFragmentResultListener
+                    val loc = viewModel.uiState.value.savedLocations.firstOrNull { it.id == locId } ?: return@setFragmentResultListener
+                    openLocationEditorForEdit(loc)
+                }
+                LocationGroupBottomSheet.ACTION_ADD_ON_QUEUE -> {
+                    val queueId = bundle.getString(LocationGroupBottomSheet.RESULT_QUEUE_ID)
+                    openLocationEditorForCreate(preselectedQueue = queueId)
+                }
+            }
+        }
+
+        supportFragmentManager.setFragmentResultListener(
+            HistoryDayBottomSheet.REQUEST_KEY,
+            this
+        ) { _, bundle ->
+            val dateKey = bundle.getString(HistoryDayBottomSheet.RESULT_DATE_KEY) ?: return@setFragmentResultListener
+            val queueId = bundle.getString(HistoryDayBottomSheet.RESULT_QUEUE_ID) ?: return@setFragmentResultListener
+            val diff = viewModel.uiState.value.feed?.schedules?.get(dateKey)?.computeQueueDiff(queueId) ?: return@setFragmentResultListener
+            openScheduleRevisionsSheet(dateKey, diff)
+        }
+    }
+
     private fun observeState() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.uiState.collect { state ->
-                    renderState(state)
+                launch {
+                    viewModel.uiState.collect { state ->
+                        renderState(state)
+                    }
+                }
+                launch {
+                    while (isActive) {
+                        viewModel.onClockTick()
+                        delay(30_000L)
+                    }
                 }
             }
         }
@@ -383,6 +455,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openActiveOperationalMessage() {
+        val tag = "operational_message"
+        if (supportFragmentManager.findFragmentByTag(tag) != null || supportFragmentManager.isStateSaved) return
         val state = viewModel.uiState.value
         val feed = state.feed ?: return
         val day = resolveMyQueueDaySchedule(state, feed) ?: return
@@ -392,14 +466,14 @@ class MainActivity : AppCompatActivity() {
             .distinct()
         val dateLabel = TimeUtils.formatDateHeading(day.date)
         OperationalMessageBottomSheet.newInstance(dateLabel, msg, prevMsgs)
-            .show(supportFragmentManager, "operational_message")
+            .show(supportFragmentManager, tag)
     }
 
     private fun openScheduleRevisionsSheet(dateKey: String, diff: QueueRevisionDiff) {
-        ScheduleRevisionsBottomSheet().apply {
-            this.dateKey = dateKey
-            this.diff = diff
-        }.show(supportFragmentManager, "schedule_revisions")
+        val tag = "schedule_revisions"
+        if (supportFragmentManager.findFragmentByTag(tag) != null || supportFragmentManager.isStateSaved) return
+        ScheduleRevisionsBottomSheet.newInstance(dateKey, diff)
+            .show(supportFragmentManager, tag)
     }
 
     private fun renderAllQueuesTab(state: MainUiState, feed: OutagesFeed) {
@@ -433,13 +507,14 @@ class MainActivity : AppCompatActivity() {
             groups.firstOrNull { g -> g.locations.any { it.id == filterId } }
         }
 
-        val chipsSig = "${selectedGroup?.queueId}|" + groups.joinToString("|") { g ->
+        val structureSig = groups.joinToString("|") { g ->
             g.queueId + ":" + g.locations.joinToString(",") { "${it.id}:${it.name}:${it.icon.name}" }
         }
-        if (chipsSig != lastHistoryChipsSig) {
-            lastHistoryChipsSig = chipsSig
+        if (structureSig != lastHistoryChipsStructureSig) {
+            lastHistoryChipsStructureSig = structureSig
             val groupView = binding.historyFilterChipGroup
             groupView.removeAllViews()
+            historyChipsByQueue.clear()
 
             for (g in groups) {
                 val chip = Chip(this, null, com.google.android.material.R.attr.chipStyle).apply {
@@ -453,6 +528,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
                 groupView.addView(chip)
+                historyChipsByQueue[g.queueId] = chip
             }
 
             val allChip = Chip(this, null, com.google.android.material.R.attr.chipStyle).apply {
@@ -464,6 +540,15 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             groupView.addView(allChip)
+            historyChipsByQueue[null] = allChip
+        } else {
+            val activeKey = selectedGroup?.queueId
+            for ((key, chip) in historyChipsByQueue) {
+                val shouldCheck = key == activeKey
+                if (chip.isChecked != shouldCheck) {
+                    chip.isChecked = shouldCheck
+                }
+            }
         }
 
         val days = feed.availableDates.mapNotNull { feed.schedules[it] }
@@ -474,13 +559,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openGroupEditChooser(group: LocationQueueGroup) {
-        val sheet = LocationGroupBottomSheet().apply {
-            this.group = group
-            this.canAddMore = viewModel.uiState.value.savedLocations.size < SavedLocationCodec.MAX_LOCATIONS
-            this.onEditLocation = { loc -> openLocationEditorForEdit(loc) }
-            this.onAddOnSameQueue = { queueId -> openLocationEditorForCreate(preselectedQueue = queueId) }
-        }
-        sheet.show(supportFragmentManager, "location_group_sheet")
+        val tag = "location_group_sheet"
+        if (supportFragmentManager.findFragmentByTag(tag) != null || supportFragmentManager.isStateSaved) return
+        val canAdd = viewModel.uiState.value.savedLocations.size < SavedLocationCodec.MAX_LOCATIONS
+        LocationGroupBottomSheet.newInstance(group, canAdd)
+            .show(supportFragmentManager, tag)
     }
 
     private fun openLocationEditorForCreate(preselectedQueue: String? = null) {
@@ -488,43 +571,17 @@ class MainActivity : AppCompatActivity() {
             Snackbar.make(binding.root, R.string.location_limit_reached, Snackbar.LENGTH_SHORT).show()
             return
         }
-        val sheet = LocationEditorBottomSheet.newForCreate(preselectedQueue)
-        sheet.onSaveLocation = { loc ->
-            viewModel.saveLocation(loc)
-            if (loc.notifyEnabled) {
-                maybeRequestNotificationPermission()
-            }
-            Snackbar.make(
-                binding.root,
-                getString(R.string.location_saved_msg, loc.name, loc.queueId),
-                Snackbar.LENGTH_SHORT
-            ).show()
-        }
-        sheet.show(supportFragmentManager, "location_editor_create")
+        val tag = "location_editor"
+        if (supportFragmentManager.findFragmentByTag(tag) != null || supportFragmentManager.isStateSaved) return
+        LocationEditorBottomSheet.newForCreate(preselectedQueue)
+            .show(supportFragmentManager, tag)
     }
 
     private fun openLocationEditorForEdit(location: SavedLocation) {
-        val sheet = LocationEditorBottomSheet.newForEdit(location)
-        sheet.onSaveLocation = { updated ->
-            viewModel.saveLocation(updated)
-            if (updated.notifyEnabled) {
-                maybeRequestNotificationPermission()
-            }
-            Snackbar.make(
-                binding.root,
-                getString(R.string.location_saved_msg, updated.name, updated.queueId),
-                Snackbar.LENGTH_SHORT
-            ).show()
-        }
-        sheet.onDeleteLocation = { removed ->
-            viewModel.deleteLocation(removed.id)
-            Snackbar.make(
-                binding.root,
-                getString(R.string.location_deleted_msg, removed.name),
-                Snackbar.LENGTH_SHORT
-            ).show()
-        }
-        sheet.show(supportFragmentManager, "location_editor_edit")
+        val tag = "location_editor"
+        if (supportFragmentManager.findFragmentByTag(tag) != null || supportFragmentManager.isStateSaved) return
+        LocationEditorBottomSheet.newForEdit(location)
+            .show(supportFragmentManager, tag)
     }
 
     private fun maybeRequestNotificationPermission() {
@@ -537,13 +594,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openHistoryDaySheet(day: DaySchedule) {
-        val sheet = HistoryDayBottomSheet().apply {
-            daySchedule = day
-            savedLocations = viewModel.uiState.value.savedLocations
-            onRevisionBadgeClicked = { dateKey, diff ->
-                openScheduleRevisionsSheet(dateKey, diff)
-            }
-        }
-        sheet.show(supportFragmentManager, "history_day")
+        val tag = "history_day"
+        if (supportFragmentManager.findFragmentByTag(tag) != null || supportFragmentManager.isStateSaved) return
+        HistoryDayBottomSheet.newInstance(day, viewModel.uiState.value.savedLocations)
+            .show(supportFragmentManager, tag)
     }
 }

@@ -75,7 +75,6 @@
     <color name="status_power_on_fg">#0B5D2A</color>
     <color name="status_power_off_bg">#FFDAD6</color>
     <color name="status_power_off_fg">#8C1D18</color>
-    <color name="timeline_light_on">#C8E6C9</color>
     <color name="timeline_light_off">#D32F2F</color>
     <color name="timeline_now_marker">#191C20</color>
 </resources>

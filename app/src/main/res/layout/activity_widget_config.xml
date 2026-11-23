@@ -17,6 +17,9 @@
             android:id="@+id/configToolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
+            app:navigationContentDescription="@string/navigate_back"
+            app:navigationIcon="@drawable/ic_arrow_back"
+            app:navigationIconTint="?attr/colorOnSurface"
             app:title="@string/widget_config_title" />
     </com.google.android.material.appbar.AppBarLayout>
 

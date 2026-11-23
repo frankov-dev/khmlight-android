@@ -10,9 +10,13 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.os.bundleOf
 import com.frankov_dev.khmlight.R
 import com.frankov_dev.khmlight.data.LocationQueueGroup
+import com.frankov_dev.khmlight.data.PrefsManager
 import com.frankov_dev.khmlight.data.SavedLocation
+import com.frankov_dev.khmlight.data.SavedLocationCodec
+import com.frankov_dev.khmlight.data.groupByQueuePreservingOrder
 import com.frankov_dev.khmlight.databinding.BottomSheetLocationGroupBinding
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.card.MaterialCardView
@@ -25,8 +29,6 @@ class LocationGroupBottomSheet : BottomSheetDialogFragment() {
 
     var group: LocationQueueGroup? = null
     var canAddMore: Boolean = true
-    var onEditLocation: ((SavedLocation) -> Unit)? = null
-    var onAddOnSameQueue: ((String) -> Unit)? = null
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -39,10 +41,20 @@ class LocationGroupBottomSheet : BottomSheetDialogFragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        val g = group ?: run {
-            dismiss()
-            return
-        }
+        val savedLocations = PrefsManager(requireContext()).getSavedLocations()
+        val argQueueId = arguments?.getString(ARG_QUEUE_ID)
+        val g = group
+            ?: argQueueId?.let { qId ->
+                savedLocations.groupByQueuePreservingOrder().firstOrNull { it.queueId == qId }
+            }
+            ?: run {
+                view.post { if (isAdded) dismissAllowingStateLoss() }
+                return
+            }
+        val allowAdd = arguments?.getBoolean(
+            ARG_CAN_ADD_MORE,
+            savedLocations.size < SavedLocationCodec.MAX_LOCATIONS
+        ) ?: canAddMore
 
         val ctx = requireContext()
         val density = resources.displayMetrics.density
@@ -162,18 +174,30 @@ class LocationGroupBottomSheet : BottomSheetDialogFragment() {
             M3Motion.attachPressSpring(card)
             card.setOnClickListener {
                 dismiss()
-                onEditLocation?.invoke(loc)
+                parentFragmentManager.setFragmentResult(
+                    REQUEST_KEY,
+                    bundleOf(
+                        RESULT_ACTION to ACTION_EDIT_LOCATION,
+                        RESULT_LOCATION_ID to loc.id
+                    )
+                )
             }
 
             binding.llGroupLocationsList.addView(card)
             M3Motion.animateCascadeItem(card, index, baseDelayMs = 30L)
         }
 
-        binding.btnAddAnotherOnQueue.visibility = if (canAddMore) View.VISIBLE else View.GONE
+        binding.btnAddAnotherOnQueue.visibility = if (allowAdd) View.VISIBLE else View.GONE
         M3Motion.attachPressSpring(binding.btnAddAnotherOnQueue)
         binding.btnAddAnotherOnQueue.setOnClickListener {
             dismiss()
-            onAddOnSameQueue?.invoke(g.queueId)
+            parentFragmentManager.setFragmentResult(
+                REQUEST_KEY,
+                bundleOf(
+                    RESULT_ACTION to ACTION_ADD_ON_QUEUE,
+                    RESULT_QUEUE_ID to g.queueId
+                )
+            )
         }
     }
 
@@ -190,5 +214,28 @@ class LocationGroupBottomSheet : BottomSheetDialogFragment() {
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null
+    }
+
+    companion object {
+        const val REQUEST_KEY = "req_location_group"
+        const val RESULT_ACTION = "result_action"
+        const val ACTION_EDIT_LOCATION = "edit_location"
+        const val ACTION_ADD_ON_QUEUE = "add_on_queue"
+        const val RESULT_LOCATION_ID = "location_id"
+        const val RESULT_QUEUE_ID = "queue_id"
+
+        private const val ARG_QUEUE_ID = "arg_queue_id"
+        private const val ARG_CAN_ADD_MORE = "arg_can_add_more"
+
+        fun newInstance(group: LocationQueueGroup, canAddMore: Boolean): LocationGroupBottomSheet {
+            return LocationGroupBottomSheet().apply {
+                this.group = group
+                this.canAddMore = canAddMore
+                arguments = bundleOf(
+                    ARG_QUEUE_ID to group.queueId,
+                    ARG_CAN_ADD_MORE to canAddMore
+                )
+            }
+        }
     }
 }

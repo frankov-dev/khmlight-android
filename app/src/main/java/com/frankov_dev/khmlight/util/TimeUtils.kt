@@ -158,8 +158,31 @@ object TimeUtils {
         }
     }
 
+    fun mergeContiguousIntervals(intervals: List<OutageInterval>): List<OutageInterval> {
+        val valid = intervals
+            .filter { it.endMinutes > it.startMinutes }
+            .sortedBy { it.startMinutes }
+        if (valid.size <= 1) return valid
+
+        val merged = mutableListOf<OutageInterval>()
+        var current = valid[0]
+        for (i in 1 until valid.size) {
+            val next = valid[i]
+            if (next.startMinutes <= current.endMinutes) {
+                if (next.endMinutes > current.endMinutes) {
+                    current = current.copy(end = next.end)
+                }
+            } else {
+                merged.add(current)
+                current = next
+            }
+        }
+        merged.add(current)
+        return merged
+    }
+
     fun computeLiveStatus(intervals: List<OutageInterval>, nowMinute: Int = currentMinuteOfDay()): LivePowerStatus {
-        val sorted = intervals.sortedBy { it.startMinutes }
+        val sorted = mergeContiguousIntervals(intervals)
         val active = sorted.firstOrNull { it.containsMinute(nowMinute) }
         if (active != null) {
             val remaining = (active.endMinutes - nowMinute).coerceAtLeast(0)

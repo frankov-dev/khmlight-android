@@ -318,7 +318,6 @@ class LocationBlocksAdapter(
                         rowBinding.intervalDivider.visibility =
                             if (index == 0) View.GONE else View.VISIBLE
                         rowBinding.tvIntervalTime.text = "${interval.start} – ${interval.end}"
-                        M3Motion.attachPressSpring(rowBinding.intervalContent, pressedScale = 0.985f)
                         binding.intervalsContainer.addView(rowBinding.root)
                         rowBindings.add(rowBinding)
                         M3Motion.animateCascadeItem(rowBinding.root, index, baseDelayMs = 45L)

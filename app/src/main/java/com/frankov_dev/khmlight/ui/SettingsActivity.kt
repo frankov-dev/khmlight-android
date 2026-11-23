@@ -53,6 +53,7 @@ class SettingsActivity : AppCompatActivity() {
 
         setupWindowInsets()
         setupToolbar()
+        setupFragmentResultListener()
         setupNotificationsSection()
         setupAppearanceSection()
         setupLocationsSection()
@@ -67,10 +68,47 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun setupWindowInsets() {
         ViewCompat.setOnApplyWindowInsetsListener(binding.settingsRoot) { _, insets ->
-            val sysBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val sysBars = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            binding.settingsRoot.updatePadding(left = sysBars.left, right = sysBars.right)
             binding.settingsAppBar.updatePadding(top = sysBars.top)
             binding.settingsScrollView.updatePadding(bottom = sysBars.bottom + dp(24))
             insets
+        }
+    }
+
+    private fun setupFragmentResultListener() {
+        supportFragmentManager.setFragmentResultListener(
+            LocationEditorBottomSheet.REQUEST_KEY,
+            this
+        ) { _, bundle ->
+            val (action, loc) = LocationEditorBottomSheet.parseResultLocation(bundle) ?: return@setFragmentResultListener
+            when (action) {
+                LocationEditorBottomSheet.ACTION_SAVE -> {
+                    prefs.upsertLocation(loc)
+                    renderLocationLists()
+                    WidgetUpdater.updateAllWidgets(applicationContext)
+                    OutageAlarmScheduler.scheduleFromCacheAsync(applicationContext)
+                    if (loc.notifyEnabled) requestPermissionIfNeeded()
+                    Snackbar.make(
+                        binding.root,
+                        getString(R.string.location_saved_msg, loc.name, loc.queueId),
+                        Snackbar.LENGTH_SHORT
+                    ).show()
+                }
+                LocationEditorBottomSheet.ACTION_DELETE -> {
+                    prefs.deleteLocation(loc.id)
+                    renderLocationLists()
+                    WidgetUpdater.updateAllWidgets(applicationContext)
+                    OutageAlarmScheduler.scheduleFromCacheAsync(applicationContext)
+                    Snackbar.make(
+                        binding.root,
+                        getString(R.string.location_deleted_msg, loc.name),
+                        Snackbar.LENGTH_SHORT
+                    ).show()
+                }
+            }
         }
     }
 
@@ -212,20 +250,12 @@ class SettingsActivity : AppCompatActivity() {
                 Snackbar.make(binding.root, R.string.location_limit_reached, Snackbar.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-            val sheet = LocationEditorBottomSheet.newForCreate()
-            sheet.onSaveLocation = { loc ->
-                prefs.upsertLocation(loc)
-                renderLocationLists()
-                WidgetUpdater.updateAllWidgets(applicationContext)
-                OutageAlarmScheduler.scheduleFromCacheAsync(applicationContext)
-                if (loc.notifyEnabled) requestPermissionIfNeeded()
-                Snackbar.make(
-                    binding.root,
-                    getString(R.string.location_saved_msg, loc.name, loc.queueId),
-                    Snackbar.LENGTH_SHORT
-                ).show()
+            val tag = "settings_loc_editor"
+            if (supportFragmentManager.findFragmentByTag(tag) != null || supportFragmentManager.isStateSaved) {
+                return@setOnClickListener
             }
-            sheet.show(supportFragmentManager, "settings_loc_create")
+            LocationEditorBottomSheet.newForCreate()
+                .show(supportFragmentManager, tag)
         }
         renderLocationLists()
     }
@@ -343,37 +373,16 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun openLocationEditor(location: SavedLocation) {
-        val sheet = LocationEditorBottomSheet.newForEdit(location)
-        sheet.onSaveLocation = { updated ->
-            prefs.upsertLocation(updated)
-            renderLocationLists()
-            WidgetUpdater.updateAllWidgets(applicationContext)
-            OutageAlarmScheduler.scheduleFromCacheAsync(applicationContext)
-            if (updated.notifyEnabled) requestPermissionIfNeeded()
-            Snackbar.make(
-                binding.root,
-                getString(R.string.location_saved_msg, updated.name, updated.queueId),
-                Snackbar.LENGTH_SHORT
-            ).show()
-        }
-        sheet.onDeleteLocation = { removed ->
-            prefs.deleteLocation(removed.id)
-            renderLocationLists()
-            WidgetUpdater.updateAllWidgets(applicationContext)
-            OutageAlarmScheduler.scheduleFromCacheAsync(applicationContext)
-            Snackbar.make(
-                binding.root,
-                getString(R.string.location_deleted_msg, removed.name),
-                Snackbar.LENGTH_SHORT
-            ).show()
-        }
-        sheet.show(supportFragmentManager, "settings_loc_edit")
+        val tag = "settings_loc_editor"
+        if (supportFragmentManager.findFragmentByTag(tag) != null || supportFragmentManager.isStateSaved) return
+        LocationEditorBottomSheet.newForEdit(location)
+            .show(supportFragmentManager, tag)
     }
 
     private fun setupAboutSection() {
         val versionName = runCatching {
             packageManager.getPackageInfo(packageName, 0).versionName
-        }.getOrNull() ?: "1.1"
+        }.getOrNull() ?: "1.1.1"
         binding.tvAboutAppName.text = "${getString(R.string.app_name)} $versionName"
 
         val serverFormatted = TimeUtils.formatLastUpdated(prefs.getLastServerUpdatedIso().orEmpty())

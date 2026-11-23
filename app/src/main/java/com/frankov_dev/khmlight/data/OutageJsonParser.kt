@@ -160,4 +160,56 @@ object OutageJsonParser {
         if (!obj.has(key) || obj.isNull(key)) return null
         return obj.optString(key, "").takeIf { it.isNotBlank() }
     }
+
+    fun encodeOutagesJson(feed: OutagesFeed): String {
+        val root = JSONObject()
+        root.put("source", feed.source)
+        root.put("last_updated", feed.lastUpdated)
+        if (!feed.scheduleHash.isNullOrBlank()) {
+            root.put("schedule_hash", feed.scheduleHash)
+        }
+        val datesArr = JSONArray()
+        for (d in feed.availableDates) datesArr.put(d)
+        root.put("available_dates", datesArr)
+
+        val schedulesObj = JSONObject()
+        for ((dateKey, day) in feed.schedules) {
+            val dayObj = JSONObject()
+            dayObj.put("date", day.date)
+            dayObj.put("operational_message", day.operationalMessage ?: JSONObject.NULL)
+            dayObj.put("queues", encodeQueuesObject(day.queues))
+            if (day.previousSchedules.isNotEmpty()) {
+                val prevArr = JSONArray()
+                for (rev in day.previousSchedules) {
+                    val revObj = JSONObject()
+                    revObj.put("operational_message", rev.operationalMessage ?: JSONObject.NULL)
+                    revObj.put("queues", encodeQueuesObject(rev.queues))
+                    prevArr.put(revObj)
+                }
+                dayObj.put("previous_schedules", prevArr)
+            }
+            schedulesObj.put(dateKey, dayObj)
+        }
+        root.put("schedules", schedulesObj)
+        return root.toString()
+    }
+
+    private fun encodeQueuesObject(queues: Map<String, QueueSchedule>): JSONObject {
+        val queuesObj = JSONObject()
+        for ((qId, qSchedule) in queues) {
+            val qObj = JSONObject()
+            val intArr = JSONArray()
+            for (interval in qSchedule.intervals) {
+                val iObj = JSONObject()
+                iObj.put("start", interval.start)
+                iObj.put("end", interval.end)
+                iObj.put("type", interval.type)
+                intArr.put(iObj)
+            }
+            qObj.put("intervals", intArr)
+            qObj.put("total_hours_off", qSchedule.totalHoursOff)
+            queuesObj.put(qId, qObj)
+        }
+        return queuesObj
+    }
 }

@@ -160,7 +160,12 @@ class TimelineBarView @JvmOverloads constructor(
     }
 
     private fun updatePulseState() {
-        val shouldPulse = isAttachedToWindow && visibility == VISIBLE && currentMinute != null && showHourLabels && !isInEditMode
+        val shouldPulse = isAttachedToWindow &&
+            windowVisibility == VISIBLE &&
+            visibility == VISIBLE &&
+            currentMinute != null &&
+            showHourLabels &&
+            !isInEditMode
         if (shouldPulse) {
             if (pulseAnimator?.isRunning != true) {
                 pulseAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
@@ -196,6 +201,11 @@ class TimelineBarView @JvmOverloads constructor(
 
     override fun onVisibilityChanged(changedView: View, visibility: Int) {
         super.onVisibilityChanged(changedView, visibility)
+        updatePulseState()
+    }
+
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        super.onWindowVisibilityChanged(visibility)
         updatePulseState()
     }
 

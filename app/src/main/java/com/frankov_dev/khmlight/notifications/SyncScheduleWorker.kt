@@ -75,7 +75,7 @@ class SyncScheduleWorker(
             }
         }
 
-        WidgetUpdater.updateAllWidgets(applicationContext, newFeed)
+        WidgetUpdater.updateAllWidgetsSuspend(applicationContext, newFeed)
         OutageAlarmScheduler.schedule(applicationContext, newFeed)
 
         return Result.success()
