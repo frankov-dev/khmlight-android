@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">KHMlight</string>
+    <string name="nav_my_queue">Моя черга</string>
+    <string name="nav_all_queues">Усі черги</string>
+    <string name="nav_history">Історія</string>
+
+    <string name="select_queue">Обрати чергу</string>
+    <string name="queue_format">Черга %1$s</string>
+    <string name="my_queue_badge">Моя черга</string>
+    <string name="choose_your_queue_title">Оберіть вашу підчергу</string>
+    <string name="choose_your_queue_subtitle">Щоб одразу бачити статус світла, таймер та графік саме для вашої адреси</string>
+    <string name="change_queue">Змінити</string>
+    <string name="set_as_my_queue">Зробити моєю чергою</string>
+    <string name="my_queue_updated">Обрано підчергу %1$s</string>
+
+    <string name="status_power_on">Є світло</string>
+    <string name="status_power_off">Немає світла</string>
+    <string name="status_scheduled_day">Запланований графік</string>
+    <string name="until_outage">До відключення %1$s (о %2$s)</string>
+    <string name="until_power_on">До включення %1$s (о %2$s)</string>
+    <string name="no_more_outages_today">Більше відключень сьогодні не заплановано</string>
+    <string name="no_outages_day">Відключень не заплановано</string>
+    <string name="tomorrow_not_published_title">Графік на завтра ще не опубліковано</string>
+    <string name="tomorrow_not_published_subtitle">Зазвичай Хмельницькобленерго публікує графік на наступний день увечері. Потягніть вниз, щоб перевірити оновлення.</string>
+    <string name="total_hours_off">Без світла: %1$s</string>
+    <string name="local_updated_short">Оновлено %1$s</string>
+    <string name="settings_server_updated">На сервері (GitHub): %1$s</string>
+    <string name="settings_app_updated">У застосунку: %1$s</string>
+    <string name="operational_message_ok">Зрозуміло</string>
+    <string name="offline_cache_notice">Офлайн-режим • показані збережені дані</string>
+
+    <string name="intervals_header">Графік відключень</string>
+    <string name="operational_notice_label">Повідомлення ХОЕ</string>
+    <string name="interval_now">Зараз</string>
+    <string name="interval_done">Минуло</string>
+    <string name="interval_upcoming">Заплановано</string>
+    <string name="interval_sub_now">Триває відключення · %1$s</string>
+    <string name="interval_sub_upcoming">Заплановане відключення · %1$s</string>
+    <string name="interval_sub_done">Відключення минуло · %1$s</string>
+
+    <string name="history_filter_my">Лише моя черга</string>
+    <string name="history_filter_all">Усі черги</string>
+    <string name="history_tap_details">Натисніть для перегляду всіх черг</string>
+    <string name="history_no_data">Немає збереженої історії</string>
+
+    <string name="action_refresh">Оновити</string>
+    <string name="action_settings">Налаштування</string>
+    <string name="navigate_back">Назад</string>
+    <string name="settings_title">Налаштування</string>
+    <string name="settings_appearance_header">Оформлення та палітра</string>
+    <string name="settings_queue_header">Черга</string>
+    <string name="settings_queue_not_selected">Не обрано</string>
+    <string name="settings_about_header">Про застосунок</string>
+    <string name="settings_about_source">Дані графіків ГПВ: hoe.com.ua (через GitHub JSON)</string>
+    <string name="settings_notifications_header">Сповіщення</string>
+    <string name="settings_notify_outage">Перед відключенням</string>
+    <string name="settings_notify_power_on">Перед включенням</string>
+    <string name="settings_notify_schedule">Зміни графіка та завтра</string>
+    <string name="settings_lead_time_label">Попереджати за</string>
+    <string name="lead_time_15">15 хв</string>
+    <string name="lead_time_30">30 хв</string>
+    <string name="lead_time_60">60 хв</string>
+    <string name="settings_quiet_hours">Тихі години (23:00 – 07:00)</string>
+    <string name="settings_quiet_hours_subtitle">Не надсилати сповіщення вночі</string>
+    <string name="settings_notif_permission_needed">Дозвіл на сповіщення вимкнено в системі</string>
+    <string name="settings_open_notif_settings">Увімкнути</string>
+
+    <string name="notif_channel_outage_name">Попередження про відключення</string>
+    <string name="notif_channel_outage_desc">Нагадування перед плановим вимкненням електроенергії</string>
+    <string name="notif_channel_power_on_name">Попередження про включення</string>
+    <string name="notif_channel_power_on_desc">Нагадування перед появою електроенергії</string>
+    <string name="notif_channel_schedule_name">Зміни графіка та завтра</string>
+    <string name="notif_channel_schedule_desc">Повідомлення при зміні інтервалів вашої черги або публікації графіка на завтра</string>
+
+    <string name="action_theme">Тема оформлення</string>
+    <string name="theme_system">Як у системі</string>
+    <string name="theme_light">Світла</string>
+    <string name="theme_dark">Темна</string>
+    <string name="dynamic_colors_title">Material You (кольори шпалер)</string>
+    <string name="dynamic_colors_subtitle">Адаптувати палітру під системну тему Android 12+</string>
+
+    <!-- Widgets (1x1, 1x4, 2x2, 4x2) -->
+    <string name="widget_1x1_label">KHMlight • Міні (1×1)</string>
+    <string name="widget_1x1_desc">Компактний віджет 1×1 із вибором геометричної форми B1–B5 та таймером</string>
+    <string name="widget_1x4_label">KHMlight • Signal Wave (1×4)</string>
+    <string name="widget_1x4_desc">Горизонтальний віджет із Signal Wave, формами Time Badge B1–B5 та часом зміни</string>
+    <string name="widget_2x2_label">KHMlight • Статус (2×2)</string>
+    <string name="widget_2x2_desc">Квадратний віджет із великим Time Badge B1–B5, Signal Wave та підсумком доби</string>
+    <string name="widget_4x2_label">KHMlight • Дашборд (4×2)</string>
+    <string name="widget_4x2_desc">Розширений віджет із Signal Wave 00:00–24:00, Time Badge B1–B5 та інтервалами</string>
+
+    <string name="widget_config_title">Налаштування віджета</string>
+    <string name="widget_shape_header">Форма елемента (Material 3 Expressive)</string>
+    <string name="widget_color_header">Кольорова палітра та тема</string>
+    <string name="widget_queue_header">Черга для віджета</string>
+    <string name="widget_queue_auto">Моя черга (з застосунку)</string>
+    <string name="widget_save_button">Зберегти віджет</string>
+
+    <string name="error_loading">Не вдалося завантажити дані</string>
+    <string name="retry">Спробувати ще</string>
+    <string name="loading">Завантаження графіка…</string>
+    <string name="close">Закрити</string>
+</resources>

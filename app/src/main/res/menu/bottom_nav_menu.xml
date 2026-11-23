@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/nav_my_queue"
+        android:icon="@drawable/ic_bolt"
+        android:title="@string/nav_my_queue" />
+    <item
+        android:id="@+id/nav_all_queues"
+        android:icon="@drawable/ic_grid"
+        android:title="@string/nav_all_queues" />
+    <item
+        android:id="@+id/nav_history"
+        android:icon="@drawable/ic_history"
+        android:title="@string/nav_history" />
+</menu>

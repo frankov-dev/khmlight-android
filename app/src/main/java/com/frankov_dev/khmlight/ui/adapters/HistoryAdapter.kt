@@ -1,0 +1,113 @@
+package com.frankov_dev.khmlight.ui.adapters
+
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import androidx.recyclerview.widget.RecyclerView
+import com.frankov_dev.khmlight.R
+import com.frankov_dev.khmlight.data.DaySchedule
+import com.frankov_dev.khmlight.databinding.ItemHistoryDayBinding
+import com.frankov_dev.khmlight.ui.M3Motion
+import com.frankov_dev.khmlight.util.TimeUtils
+
+class HistoryAdapter(
+    private val onDayClicked: (DaySchedule) -> Unit
+) : RecyclerView.Adapter<HistoryAdapter.ViewHolder>() {
+
+    private var days: List<DaySchedule> = emptyList()
+    private var myQueueId: String? = null
+    private var onlyMyQueue: Boolean = true
+    private var lastSignature: String? = null
+    private val animatedPositions = HashSet<Int>()
+
+    fun submitData(
+        days: List<DaySchedule>,
+        myQueueId: String?,
+        onlyMyQueue: Boolean
+    ) {
+        val sig = "$myQueueId|$onlyMyQueue|" + days.joinToString(",") { it.date }
+        val changed = sig != lastSignature
+        lastSignature = sig
+
+        this.days = days
+        this.myQueueId = myQueueId
+        this.onlyMyQueue = onlyMyQueue
+
+        if (changed) {
+            animatedPositions.clear()
+            notifyDataSetChanged()
+        }
+    }
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
+        val binding = ItemHistoryDayBinding.inflate(
+            LayoutInflater.from(parent.context),
+            parent,
+            false
+        )
+        return ViewHolder(binding)
+    }
+
+    override fun onBindViewHolder(holder: ViewHolder, position: Int) {
+        val shouldAnimate = animatedPositions.add(position)
+        holder.bind(days[position], position, shouldAnimate)
+    }
+
+    override fun getItemCount(): Int = days.size
+
+    inner class ViewHolder(
+        private val binding: ItemHistoryDayBinding
+    ) : RecyclerView.ViewHolder(binding.root) {
+
+        init {
+            M3Motion.attachPressSpring(binding.historyDayCard)
+        }
+
+        fun bind(day: DaySchedule, position: Int, shouldAnimate: Boolean) {
+            val ctx = binding.root.context
+            binding.tvHistoryDate.text = TimeUtils.formatDateHeading(day.date)
+
+            val mySchedule = myQueueId?.let { day.queues[it] }
+            if (onlyMyQueue && mySchedule != null) {
+                binding.tvHistoryHours.text = TimeUtils.formatHours(mySchedule.totalHoursOff)
+                binding.historyTimelineBar.visibility = View.VISIBLE
+                binding.historyTimelineBar.setData(
+                    intervals = mySchedule.intervals,
+                    currentMinute = if (TimeUtils.isToday(day.date)) TimeUtils.currentMinuteOfDay() else null,
+                    showHourLabels = false,
+                    animateReveal = shouldAnimate
+                )
+                binding.tvHistoryIntervals.text = if (mySchedule.intervals.isEmpty()) {
+                    ctx.getString(R.string.no_outages_day)
+                } else {
+                    "${ctx.getString(R.string.queue_format, mySchedule.queueId)}: " +
+                        mySchedule.intervals.joinToString("  •  ") { "${it.start}–${it.end}" }
+                }
+            } else {
+                val avgHours = if (day.queues.isNotEmpty()) {
+                    day.queues.values.map { it.totalHoursOff }.average()
+                } else {
+                    0.0
+                }
+                binding.tvHistoryHours.text = "≈ ${TimeUtils.formatHours(avgHours)}"
+                binding.historyTimelineBar.visibility = View.GONE
+                binding.tvHistoryIntervals.text = ctx.getString(R.string.history_tap_details)
+            }
+
+            if (!day.operationalMessage.isNullOrBlank()) {
+                binding.tvHistoryNote.visibility = View.VISIBLE
+                binding.tvHistoryNote.text = day.operationalMessage
+            } else {
+                binding.tvHistoryNote.visibility = View.GONE
+            }
+
+            binding.historyDayCard.setOnClickListener {
+                onDayClicked(day)
+            }
+
+            if (shouldAnimate) {
+                M3Motion.animateCascadeItem(binding.historyDayCard, position)
+            }
+        }
+    }
+}

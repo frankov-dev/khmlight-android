@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="status_power_on_bg">#123D22</color>
+    <color name="status_power_on_fg">#8CE9A8</color>
+    <color name="status_power_off_bg">#5C1515</color>
+    <color name="status_power_off_fg">#FFB4AB</color>
+    <color name="timeline_light_on">#264732</color>
+    <color name="timeline_light_off">#EF5350</color>
+    <color name="timeline_now_marker">#FFFFFF</color>
+</resources>
