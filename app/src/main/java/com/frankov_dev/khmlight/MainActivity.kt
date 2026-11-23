@@ -17,6 +17,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.viewpager2.widget.ViewPager2
+import com.frankov_dev.khmlight.data.AppUpdateChecker
 import com.frankov_dev.khmlight.data.DaySchedule
 import com.frankov_dev.khmlight.data.LocationQueueGroup
 import com.frankov_dev.khmlight.data.OutagesFeed
@@ -24,6 +25,7 @@ import com.frankov_dev.khmlight.data.PrefsManager
 import com.frankov_dev.khmlight.data.QueueRevisionDiff
 import com.frankov_dev.khmlight.data.SavedLocation
 import com.frankov_dev.khmlight.data.SavedLocationCodec
+import com.frankov_dev.khmlight.data.UpdateCheckResult
 import com.frankov_dev.khmlight.data.groupByQueuePreservingOrder
 import com.frankov_dev.khmlight.databinding.ActivityMainBinding
 import com.frankov_dev.khmlight.notifications.NotificationHelper
@@ -39,6 +41,7 @@ import com.frankov_dev.khmlight.ui.MainViewModel
 import com.frankov_dev.khmlight.ui.OperationalMessageBottomSheet
 import com.frankov_dev.khmlight.ui.ScheduleRevisionsBottomSheet
 import com.frankov_dev.khmlight.ui.SettingsActivity
+import com.frankov_dev.khmlight.ui.UpdateAvailableBottomSheet
 import com.frankov_dev.khmlight.ui.adapters.AllQueuesPagerAdapter
 import com.frankov_dev.khmlight.ui.adapters.HistoryAdapter
 import com.frankov_dev.khmlight.ui.adapters.MyQueuePagerAdapter
@@ -89,6 +92,24 @@ class MainActivity : AppCompatActivity() {
         setupFragmentResultListeners()
         setupListeners()
         observeState()
+        if (savedInstanceState == null) {
+            checkAppUpdateSilently()
+        }
+    }
+
+    private fun checkAppUpdateSilently() {
+        lifecycleScope.launch {
+            delay(1_500L)
+            val result = AppUpdateChecker.checkForUpdate(this@MainActivity, force = false)
+            if (result is UpdateCheckResult.UpdateAvailable) {
+                val tag = "update_available_sheet"
+                if (supportFragmentManager.findFragmentByTag(tag) == null && !supportFragmentManager.isStateSaved) {
+                    val currentVersion = AppUpdateChecker.getCurrentVersionName(this@MainActivity)
+                    UpdateAvailableBottomSheet.newInstance(currentVersion, result.release)
+                        .show(supportFragmentManager, tag)
+                }
+            }
+        }
     }
 
     override fun onResume() {

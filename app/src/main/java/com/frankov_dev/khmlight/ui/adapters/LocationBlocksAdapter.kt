@@ -254,11 +254,18 @@ class LocationBlocksAdapter(
                     binding.heroSection,
                     com.google.android.material.R.attr.colorOnSecondaryContainer
                 )
-                binding.tvStatusTitle.text = TimeUtils.formatDateHeading(dateKey)
-                binding.tvStatusSubtitle.text = if (intervals.isEmpty()) {
-                    ctx.getString(R.string.no_outages_day)
+                if (intervals.isEmpty()) {
+                    binding.tvStatusTitle.text = ctx.getString(R.string.status_no_outages)
+                    binding.tvStatusSubtitle.text = ctx.getString(R.string.status_power_all_day)
                 } else {
-                    ctx.getString(R.string.status_scheduled_day)
+                    val first = TimeUtils.mergeContiguousIntervals(intervals).firstOrNull()
+                        ?: intervals.first()
+                    binding.tvStatusTitle.text = ctx.getString(R.string.status_scheduled_day)
+                    binding.tvStatusSubtitle.text = ctx.getString(
+                        R.string.first_outage_at,
+                        first.start,
+                        TimeUtils.formatDurationMinutes(first.durationMinutes)
+                    )
                 }
             }
 

@@ -28,6 +28,9 @@
     <string name="status_power_on">Є світло</string>
     <string name="status_power_off">Немає світла</string>
     <string name="status_scheduled_day">Запланований графік</string>
+    <string name="status_no_outages">Без відключень</string>
+    <string name="status_power_all_day">Світло буде весь день</string>
+    <string name="first_outage_at">Перше відключення о %1$s (%2$s)</string>
     <string name="until_outage">До відключення %1$s (о %2$s)</string>
     <string name="until_power_on">До включення %1$s (о %2$s)</string>
     <string name="no_more_outages_today">Більше відключень сьогодні не заплановано</string>
@@ -111,4 +114,19 @@
     <string name="error_loading">Не вдалося завантажити дані</string>
     <string name="retry">Спробувати ще</string>
     <string name="loading">Завантаження графіка…</string>
+
+    <!-- App Updates (GitHub Releases) -->
+    <string name="settings_check_updates">Перевірити оновлення</string>
+    <string name="settings_checking_updates">Перевірка оновлень…</string>
+    <string name="update_up_to_date">Встановлено останню версію (%1$s)</string>
+    <string name="update_available_short">Доступне оновлення: v%1$s</string>
+    <string name="update_check_error">Не вдалося перевірити оновлення</string>
+    <string name="update_available_title">Доступне оновлення</string>
+    <string name="update_version_transition">v%1$s  →  v%2$s</string>
+    <string name="update_whats_new">Що нового</string>
+    <string name="update_download_apk">Завантажити APK</string>
+    <string name="update_download_apk_size">Завантажити APK (%1$s)</string>
+    <string name="update_open_github">Відкрити на GitHub</string>
+    <string name="update_skip_version">Пропустити</string>
+    <string name="update_later">Пізніше</string>
 </resources>

@@ -192,6 +192,24 @@ class PrefsManager(context: Context) {
         }.apply()
     }
 
+    fun getLastUpdateCheckMs(): Long? {
+        val v = prefs.getLong(KEY_LAST_UPDATE_CHECK_MS, -1L)
+        return if (v > 0L) v else null
+    }
+
+    fun setLastUpdateCheckMs(epochMs: Long) {
+        prefs.edit().putLong(KEY_LAST_UPDATE_CHECK_MS, epochMs).apply()
+    }
+
+    fun getSkippedUpdateVersion(): String? = prefs.getString(KEY_SKIPPED_UPDATE_VERSION, null)
+
+    fun setSkippedUpdateVersion(version: String?) {
+        prefs.edit().apply {
+            if (version.isNullOrBlank()) remove(KEY_SKIPPED_UPDATE_VERSION)
+            else putString(KEY_SKIPPED_UPDATE_VERSION, version)
+        }.apply()
+    }
+
     // Global Notification preferences
     fun isNotifyOutageEnabled(): Boolean = prefs.getBoolean(KEY_NOTIFY_OUTAGE, true)
 
@@ -297,6 +315,8 @@ class PrefsManager(context: Context) {
         private const val KEY_LAST_STATUS_ETAG = "last_status_etag"
         private const val KEY_LAST_SCHEDULE_HASH = "last_schedule_hash"
         private const val KEY_LAST_SERVER_UPDATED = "last_server_updated_iso"
+        private const val KEY_LAST_UPDATE_CHECK_MS = "last_update_check_ms"
+        private const val KEY_SKIPPED_UPDATE_VERSION = "skipped_update_version"
 
         private const val KEY_NOTIFY_OUTAGE = "notify_outage_enabled"
         private const val KEY_NOTIFY_POWER_ON = "notify_power_on_enabled"

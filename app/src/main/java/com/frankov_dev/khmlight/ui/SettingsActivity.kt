@@ -18,10 +18,13 @@ import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
+import androidx.lifecycle.lifecycleScope
 import com.frankov_dev.khmlight.R
+import com.frankov_dev.khmlight.data.AppUpdateChecker
 import com.frankov_dev.khmlight.data.PrefsManager
 import com.frankov_dev.khmlight.data.SavedLocation
 import com.frankov_dev.khmlight.data.SavedLocationCodec
+import com.frankov_dev.khmlight.data.UpdateCheckResult
 import com.frankov_dev.khmlight.databinding.ActivitySettingsBinding
 import com.frankov_dev.khmlight.notifications.NotificationHelper
 import com.frankov_dev.khmlight.notifications.OutageAlarmScheduler
@@ -31,6 +34,7 @@ import com.google.android.material.color.DynamicColors
 import com.google.android.material.color.MaterialColors
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.snackbar.Snackbar
+import kotlinx.coroutines.launch
 
 class SettingsActivity : AppCompatActivity() {
 
@@ -380,15 +384,54 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun setupAboutSection() {
-        val versionName = runCatching {
-            packageManager.getPackageInfo(packageName, 0).versionName
-        }.getOrNull() ?: "1.1.1"
+        val versionName = AppUpdateChecker.getCurrentVersionName(this)
         binding.tvAboutAppName.text = "${getString(R.string.app_name)} $versionName"
 
         val serverFormatted = TimeUtils.formatLastUpdated(prefs.getLastServerUpdatedIso().orEmpty())
         val appFormatted = TimeUtils.formatEpochMs(prefs.getLastAppSyncMs())
         binding.tvServerUpdated.text = getString(R.string.settings_server_updated, serverFormatted)
         binding.tvAppUpdated.text = getString(R.string.settings_app_updated, appFormatted)
+
+        M3Motion.attachPressSpring(binding.btnCheckUpdates)
+        binding.btnCheckUpdates.setOnClickListener {
+            checkForAppUpdates()
+        }
+    }
+
+    private fun checkForAppUpdates() {
+        binding.btnCheckUpdates.isEnabled = false
+        binding.tvUpdateStatus.visibility = View.VISIBLE
+        binding.tvUpdateStatus.text = getString(R.string.settings_checking_updates)
+
+        lifecycleScope.launch {
+            val currentVersion = AppUpdateChecker.getCurrentVersionName(this@SettingsActivity)
+            when (val result = AppUpdateChecker.checkForUpdate(this@SettingsActivity, force = true)) {
+                is UpdateCheckResult.UpdateAvailable -> {
+                    binding.tvUpdateStatus.text = getString(
+                        R.string.update_available_short,
+                        result.release.versionName
+                    )
+                    val tag = "update_available_sheet"
+                    if (supportFragmentManager.findFragmentByTag(tag) == null && !supportFragmentManager.isStateSaved) {
+                        UpdateAvailableBottomSheet.newInstance(currentVersion, result.release)
+                            .show(supportFragmentManager, tag)
+                    }
+                }
+                is UpdateCheckResult.UpToDate -> {
+                    val msg = getString(R.string.update_up_to_date, result.currentVersion)
+                    binding.tvUpdateStatus.text = msg
+                    Snackbar.make(binding.root, msg, Snackbar.LENGTH_SHORT).show()
+                }
+                is UpdateCheckResult.Error -> {
+                    binding.tvUpdateStatus.text = getString(R.string.update_check_error)
+                    Snackbar.make(binding.root, R.string.update_check_error, Snackbar.LENGTH_SHORT).show()
+                }
+                null -> {
+                    binding.tvUpdateStatus.visibility = View.GONE
+                }
+            }
+            binding.btnCheckUpdates.isEnabled = true
+        }
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
